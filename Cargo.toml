@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/domain",
+    "crates/provider-sdk",
+    "crates/provider-official",
+    "crates/provider-mock",
+    "crates/storage",
+    "crates/runtime",
+    "crates/scheduler",
+    "crates/router",
+    "crates/operations",
+    "crates/events",
+    "crates/monitor",
+    "crates/server",
+    "crates/worker",
+    "crates/cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/cuihairu/fishpond"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"

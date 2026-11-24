@@ -18,8 +18,11 @@
   - Commands and actual results:
   - Limitations / BLOCKED reasons: 上游接口可用性未验证，全部能力默认 unverified
   - Commit:
-- [ ] F002 Rust workspace、Node workspace、CI、锁文件、fmt/clippy/test；干净环境构建
-  - Dependencies: F000
+- [ ] F002 Rust workspace、Node workspace、CI、锁文件、fmt/clippy/test；干净环境构建 — IN_PROGRESS
+  - Dependencies: F000（已 DONE）
+  - Implementation files: Cargo.toml / crates/*（14 成员）/ package.json / pnpm-workspace.yaml / packages/console / packages/browser-worker / pnpm-lock.yaml / Cargo.lock / .github/workflows/ci.yml / scripts/check_workspace.py / rustfmt.toml
+  - Commands and actual results:
+  - Limitations / BLOCKED reasons:
   - Commit:
 - [ ] F003 domain DTO、强类型 ID、错误及状态转换；非法转换单元测试
   - Dependencies: F002

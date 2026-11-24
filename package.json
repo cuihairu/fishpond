@@ -1,0 +1,11 @@
+{
+  "name": "fishpond",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.10.1",
+  "scripts": {
+    "lint": "pnpm -r run lint",
+    "test": "pnpm -r run test",
+    "build": "pnpm -r run build"
+  }
+}

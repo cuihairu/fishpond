@@ -6,13 +6,13 @@
 
 ## M0（F000–F008）：构建、数据库、契约、权限与 Mock 基础
 
-- [ ] F000 初始化 README、AGENTS、TODO、许可证决策 ADR
+- [x] F000 初始化 README、AGENTS、TODO、许可证决策 ADR
   - Dependencies: —
   - Implementation files: README.md / AGENTS.md / TODO.md / docs/adr/0001-license.md
   - Commands and actual results:
   - Limitations / BLOCKED reasons:
   - Commit:
-- [ ] F001 参考仓库固定 commit、许可证审计、能力矩阵；未验证项标 BLOCKED
+- [x] F001 参考仓库固定 commit、许可证审计、能力矩阵；未验证项标 BLOCKED
   - Dependencies: F000
   - Implementation files: docs/reference-audit.md / docs/capability-matrix.md
   - Commands and actual results:

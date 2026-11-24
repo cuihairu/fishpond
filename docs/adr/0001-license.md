@@ -1,7 +1,7 @@
 # ADR-0001：Fishpond 自身许可证决策
 
 **日期**：2026-11-25
-**状态**：Proposed（待人工拍板）
+**状态**：Accepted（2026-11-25 确认：远端已含 Apache-2.0 LICENSE，见 commit 6b06cf5）
 
 ## 上下文
 
@@ -29,7 +29,7 @@
 | AGPL-3.0 | 网络服务也传染 | 与「托管平台形态」根本冲突，几乎封死交付 | 不适用 |
 | MIT | 最宽松 | 无专利授权 | 最小保护 |
 
-**推荐：Apache-2.0**（§3.1 已点名 Apache-2.0 为候选之一，且参考矩阵里唯一 Apache 系实现可最大程度复用其公开设计思路）。
+**已决定：Apache-2.0。** 远端仓库已落 Apache-2.0 全文（commit 6b06cf5），与参考矩阵中唯一 Apache 系实现 xianyu-pilot-pro 同族，商用友好且含专利授权。
 
 ## 影响
 
@@ -37,6 +37,6 @@
 - `XianYuApis` 无许可证 → 一律视为不可复用（仅可作能力调研）。
 - GPL/AGPL 系参考仓（XianyuAutoAgent、xianyu-auto-reply-fix）：只读研究，**禁止**复制其代码与协议逆向产物。
 
-## 待拍板
+## 结论
 
-- [ ] 人工确认 Apache-2.0 / 其他
+- [x] 人工确认：Apache-2.0（已由远端 LICENSE 落实）

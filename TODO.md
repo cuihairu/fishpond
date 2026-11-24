@@ -18,12 +18,25 @@
   - Commands and actual results:
   - Limitations / BLOCKED reasons: 上游接口可用性未验证，全部能力默认 unverified
   - Commit:
-- [ ] F002 Rust workspace、Node workspace、CI、锁文件、fmt/clippy/test；干净环境构建 — IN_PROGRESS
-  - Dependencies: F000（已 DONE）
-  - Implementation files: Cargo.toml / crates/*（14 成员）/ package.json / pnpm-workspace.yaml / packages/console / packages/browser-worker / pnpm-lock.yaml / Cargo.lock / .github/workflows/ci.yml / scripts/check_workspace.py / rustfmt.toml
+- [x] F002 Rust workspace、Node workspace、CI、锁文件、fmt/clippy/test；干净环境构建
+  - Dependencies: F000（DONE）
+  - Implementation files: Cargo.toml（workspace: resolver=3, edition 2024, rust-version 1.88, workspace.lints）/ rustfmt.toml / Cargo.lock / crates/{domain,provider-sdk,provider-official,provider-mock,storage,runtime,scheduler,router,operations,events,monitor,server,worker,cli}/（14 成员，server|worker|cli 含 main.rs）/ crates/domain/tests/no_external_deps.rs / crates/provider-mock/src/lib.rs / scripts/check_workspace.py / package.json / pnpm-workspace.yaml / pnpm-lock.yaml / packages/console/**（Vue+Vite 占位）/ packages/browser-worker/**（Playwright 占位）/ .github/workflows/ci.yml / .gitignore（+dist/）
   - Commands and actual results:
+    - `python3 scripts/check_workspace.py` → `workspace structure ok: 14 members, layering rules satisfied`
+    - `cargo fmt --all -- --check` → OK（0 diff）
+    - `cargo clippy --workspace --all-targets -- -D warnings` → 零警告
+    - `cargo test --workspace` → 32 个 target 全 `test result: ok`（含 domain 零外部依赖钉测试、provider-mock smoke 各 1 条）
+    - `pnpm install --frozen-lockfile` → `Lockfile is up to date, resolution step is skipped`
+    - `pnpm run lint` → console / browser-worker eslint 均 Done
+    - `pnpm run test` → vitest `Test Files 1 passed (1)`, `Tests 1 passed (1)`
+    - `pnpm run build` → vite `✓ built`（dist/assets 64.86 kB）+ browser-worker `tsc` Done
+    - 远端 CI（run 45502289757，headSha 8b0fbc0，completed / success）：`structure (§3.2 members / §3.3 layering)` success；`rust (ubuntu-latest, 1.88)` success；`rust (macos-latest, 1.88)` success；`rust (windows-latest, 1.88)` success；`node (lint/test/build)` success
   - Limitations / BLOCKED reasons:
-  - Commit:
+    - Node 侧门禁用 `pnpm install --frozen-lockfile` 代替 AGENTS.md 中的 `npm ci`（pnpm workspace 无 package-lock.json）；AGENTS.md 的 Node 命令行建议后续统一为 pnpm 写法。
+    - 各 crate 当前为空实现且无相互依赖；§3.3 分层规则由 `scripts/check_workspace.py`（operations 禁依赖 server/worker/router；provider-* 仅允许 provider-sdk/domain/storage；domain 禁外部 crate）与 `crates/domain/tests/no_external_deps.rs` 双重钉住，后续加入依赖即自动生效。
+    - 本单不带 cargo-wix/msi 发布，也未建 compose/`proto/`/`deploy/`（属 F020/F029 范围）。
+    - README「仓库结构」摘要仍写 `browser/`、`web/`，与本次 §3.2 实际布局（packages/console、packages/browser-worker）不一致；因需以会话文档 §3.2 原文为准，留待确认后再改。
+  - Commit: 9ae76be（Rust workspace）/ 90c6348（Node workspace）/ 8b0fbc0（CI workflow）
 - [ ] F003 domain DTO、强类型 ID、错误及状态转换；非法转换单元测试
   - Dependencies: F002
   - Commit:

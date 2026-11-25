@@ -483,8 +483,7 @@ fn require_scope(auth: &AuthContext, scope: Scope) -> Result<(), McpError> {
         Err(McpError::new(
             ErrorCode::INVALID_REQUEST,
             Cow::from(format!(
-                "permission denied: this tool requires the {} scope",
-                scope
+                "permission denied: this tool requires the {scope} scope"
             )),
             None,
         ))

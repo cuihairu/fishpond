@@ -37,6 +37,20 @@ pub fn unique_entity(prefix: &str, tag: &str) -> String {
     format!("{prefix}-{}", unique_token(tag))
 }
 
+/// A master-key generation unique to this run — `master_keys.version` is
+/// a global integer primary key and envelopes record it, so test runs
+/// stamp distinct positive generations.
+// Only the credential tests mint key generations; the other binaries
+// that include this module never do (each binary compiles it separately).
+#[allow(dead_code)]
+pub fn unique_version() -> i32 {
+    let micros = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock is after the epoch")
+        .subsec_micros() as i32;
+    (std::process::id() as i32 % 2_000) * 1_000_000 + micros % 1_000_000
+}
+
 /// A connected, migrated store — or `None` when the environment has no
 /// database, which is the skip path CI takes (§7.3: Mock is the only CI
 /// target).
@@ -60,6 +74,10 @@ pub fn tenant_record(id: &TenantId, name: &str) -> TenantRecord {
 }
 
 /// A valid account owned by `tenant` (ONLINE, no note).
+// Only the repository tests build an account; the other binaries that
+// include this module never do, and each binary compiles the module
+// separately — hence the explicit allowance.
+#[allow(dead_code)]
 pub fn account(id: &str, tenant: &TenantId, state: AccountState, note: Option<String>) -> Account {
     Account::new(
         AccountId::parse(id).expect("account id is valid"),

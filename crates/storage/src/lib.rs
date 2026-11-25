@@ -12,6 +12,7 @@
 //! tests skip when `FISHPOND_TEST_DATABASE_URL` is unset.
 
 pub mod authz;
+pub mod credentials;
 pub mod error;
 pub mod store;
 
@@ -19,6 +20,9 @@ pub use authz::{
     ApiKeyRecord, ResolvedKey, RoleRecord, SCOPE_ACCOUNTS_READ, SCOPE_ALL, SCOPE_CATALOG_READ,
     SCOPE_CONVERSATIONS_READ, SCOPE_CONVERSATIONS_WRITE, SCOPE_EVENTS_READ, SCOPE_OPERATIONS_READ,
     hash_api_key, require_scope,
+};
+pub use credentials::{
+    CredentialCipher, CredentialRecord, MasterKey, NewCredential, SealedSecret, SecretBox,
 };
 pub use error::{StorageError, StorageResult};
 pub use store::{Store, TenantRecord};

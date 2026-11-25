@@ -10,6 +10,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+aes-gcm = "0.10"
 fishpond-domain = { path = "../domain" }
 sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = [
@@ -18,6 +19,9 @@ sqlx = { version = "0.8", default-features = false, features = [
     "macros",
     "migrate",
 ] }
+zeroize = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }

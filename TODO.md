@@ -61,9 +61,21 @@
     - CI 工具链对拍：`rustup run 1.88.0 cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` 均过（1.88 的 uninlined_format_args 已前置规避）
   - Limitations / BLOCKED reasons: 契约套件仅覆盖 F004 已定义的读/写面（authorize/send/history/catalog）；真实 Provider 实现属 F032/F033（授权受限），CI 唯一目标是 F005 的 mock。manifest 的 content_digest 为 std DefaultHasher，非密码学摘要（F028 灰度比对用）。
   - Commit: 1e2f5f0
-- [ ] F005 Mock Platform 与 Mock Provider（授权/写入/断连/重复事件故障开关）
-  - Dependencies: F004
-  - Commit:
+- [x] F005 Mock Platform 与 Mock Provider（授权/写入/断连/重复事件故障开关） — DONE（2026-11-25 批量令 F003-F008）
+  - Dependencies: F004（DONE）
+  - Implementation files: crates/provider-mock/src/{lib.rs, platform.rs, provider.rs} + crates/provider-mock/Cargo.toml + Cargo.lock
+    - platform：MockPlatform（内部 Mutex 世界状态：accounts/conversations/messages/products/sessions/幂等表/事件日志 + 每租户事件序号 + 单调 mock 时钟）、四个独立故障开关 MockFault{AuthorizationDenied, WriteRejection, Disconnect, DuplicateNextEvent}（on/off 可切换、可查询）、seeded() 契约夹具（t-default / acc-mock / conv-mock-1 + 2 条入站历史 + 1 个商品）、所有调用面 session 门禁
+    - provider：MockProvider 实现 `provider_sdk::Provider`（manifest：mock / api engine / 1.0+1.1 / 6 能力），authorize/send/list_conversations/list_messages/list_products 全部委托 platform；set_fault/fault/platform() 暴露故障注入与事件日志
+    - 事件语义：成功发送才发 `message.sent` 事件（payload 为 JSON 对象 {conversationId, messageId, text}），envelope 携带每租户递增 seq 与平台级唯一 evt-N id；DuplicateNextEvent 一次性地把同一 envelope 重复投递两次并自清
+  - Commands and actual results:
+    - `cargo test -p fishpond-provider-mock` → 8 条全 ok（故障开关 on/off 往返、seeded 夹具形状、每租户事件序号 [1,1,2] 且平台 id 递增、契约套件 9 项全过、四个故障开关各一条聚焦测试）
+    - 断连开关：5 个调用面（authorize/send/list_conversations/list_messages/list_products）全部 Timeout(connection_lost) 可重试；断连前成功发送 → 断连期间同键发送失败且不留状态 → 恢复后同键重放 `deduplicated=true` 且 message id 与断连前一致（幂等跨断连存活）
+    - 写入故障：Transient(write_rejected) 可重试、`event_count()==0`（被拒写入不发事件）、同夹具下读路径不受影响、故障解除后同键首次成功发送仍 `deduplicated=false`
+    - 重复事件：DuplicateNextEvent 下取走 2 条完全相等 envelope（同 id 同 seq）、开关自清；下一发送只发 1 条；按 id 去重后 2 条真实事件
+    - 授权故障：Auth(authorize_fault) 可重试；解除后 authorize 返回 `mock-session-acc-mock`
+    - 门禁：`cargo fmt --all --check` 通过、`cargo clippy --workspace --all-targets -- -D warnings` 零警告、`cargo test --workspace` 零失败、`python3 scripts/check_workspace.py` → workspace structure ok: 15 members, layering rules satisfied；CI 工具链对拍 `rustup run 1.88.0` fmt/clippy 均过
+  - Limitations / BLOCKED reasons: mock 只做进程内模拟，不发起任何真实连接（§7.3 红线）；故障开关是测试夹具而非生产配置，运行时开关只服务 CI/本地演练。真实 provider 实现（F032/F033）仍待授权。
+  - Commit: 3dc7522
 - [ ] F006 PostgreSQL migrations、tenant FK、索引、repository
   - Dependencies: F003
   - Commit:

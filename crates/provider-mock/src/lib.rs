@@ -1,17 +1,13 @@
-//! fishpond-provider-mock: Mock platform and provider: the default and only CI target (§7.3).
+//! fishpond-provider-mock: the Mock Platform and Mock Provider — the
+//! default and only CI target (§7.3).
+//!
+//! [`MockPlatform`] simulates the upstream world (accounts, threads,
+//! history, catalog, event log) with four injectable fault switches;
+//! [`MockProvider`] adapts it to the `fishpond_provider_sdk::Provider`
+//! seam and passes that crate's contract suite.
 
-/// Reports the scaffold status of the mock provider.
-///
-/// Placeholder for F005, which replaces this with the real Mock Platform
-/// surface (authorization, writes, disconnects, duplicate-event fault switches).
-pub fn scaffold_status() -> &'static str {
-    "placeholder"
-}
+pub mod platform;
+pub mod provider;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn skeleton_compiles_and_links() {
-        assert_eq!(super::scaffold_status(), "placeholder");
-    }
-}
+pub use platform::{MockFault, MockPlatform, SEED_ACCOUNT, SEED_CONVERSATION, SEED_TENANT};
+pub use provider::MockProvider;

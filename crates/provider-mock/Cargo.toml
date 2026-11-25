@@ -8,3 +8,12 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+async-trait = "0.1"
+fishpond-domain = { path = "../domain" }
+fishpond-provider-sdk = { path = "../provider-sdk" }
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }

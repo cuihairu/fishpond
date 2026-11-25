@@ -8,9 +8,11 @@
 //! security). No wire formats live here.
 
 pub mod accounts;
+pub mod coordination;
 pub mod error;
 pub mod sessions;
 
 pub use accounts::{Accounts, StatusSummary};
+pub use coordination::SessionCoordinator;
 pub use error::{ServiceError, ServiceResult};
 pub use sessions::Sessions;

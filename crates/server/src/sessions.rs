@@ -180,6 +180,63 @@ impl Sessions {
         .await
     }
 
+    /// Manual takeover (F011): `AUTHORIZED → TAKEN_OVER`. The machine
+    /// rejects the transition from any other state — only a live login
+    /// can be taken over.
+    pub async fn take_over(
+        &self,
+        tenant: &TenantId,
+        id: &AuthSessionId,
+        note: Option<String>,
+        at: UnixMillis,
+    ) -> ServiceResult<AuthSessionRecord> {
+        self.transition(
+            tenant,
+            id,
+            AuthSessionState::TakenOver,
+            AuthSessionUpdate {
+                state_note: note,
+                ..AuthSessionUpdate::default()
+            },
+            at,
+        )
+        .await
+    }
+
+    /// Resumes automation after a takeover (F011): `TAKEN_OVER →
+    /// AUTHORIZED`. The credential pin and expiry are untouched — the
+    /// coordinator re-checks the pin before the next automation step.
+    pub async fn resume(
+        &self,
+        tenant: &TenantId,
+        id: &AuthSessionId,
+        at: UnixMillis,
+    ) -> ServiceResult<AuthSessionRecord> {
+        self.transition(
+            tenant,
+            id,
+            AuthSessionState::Authorized,
+            AuthSessionUpdate::default(),
+            at,
+        )
+        .await
+    }
+
+    /// The envelope generation (`kek_version`) of a live credential —
+    /// the "current" side of F011's pin comparison.
+    pub async fn credential_version(
+        &self,
+        tenant: &TenantId,
+        credential_id: &str,
+    ) -> ServiceResult<i32> {
+        let sealed = self
+            .store
+            .load_credential(tenant, credential_id)
+            .await
+            .map_err(|_| ServiceError::not_found("credential", credential_id))?;
+        Ok(sealed.kek_version)
+    }
+
     /// Returns one session of `tenant`, or [`ServiceError::NotFound`].
     pub async fn get(
         &self,

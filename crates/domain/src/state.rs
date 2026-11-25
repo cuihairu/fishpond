@@ -210,6 +210,9 @@ pub enum AuthSessionState {
     Revoked,
     /// Login flow failed (platform rejected, callback error, ...).
     Failed,
+    /// An operator took the session over manually: automation must stop
+    /// touching the account until the session is resumed (F011).
+    TakenOver,
 }
 
 impl AuthSessionState {
@@ -236,7 +239,19 @@ impl AuthSessionState {
         ),
         (
             &AuthSessionState::Authorized,
-            &[AuthSessionState::Expired, AuthSessionState::Revoked],
+            &[
+                AuthSessionState::Expired,
+                AuthSessionState::Revoked,
+                AuthSessionState::TakenOver,
+            ],
+        ),
+        (
+            &AuthSessionState::TakenOver,
+            &[
+                AuthSessionState::Authorized,
+                AuthSessionState::Expired,
+                AuthSessionState::Revoked,
+            ],
         ),
         (&AuthSessionState::Expired, &[]),
         (&AuthSessionState::Revoked, &[]),
@@ -252,6 +267,7 @@ impl AuthSessionState {
             Self::Expired => "EXPIRED",
             Self::Revoked => "REVOKED",
             Self::Failed => "FAILED",
+            Self::TakenOver => "TAKEN_OVER",
         }
     }
 
@@ -264,6 +280,7 @@ impl AuthSessionState {
             "EXPIRED" => Ok(Self::Expired),
             "REVOKED" => Ok(Self::Revoked),
             "FAILED" => Ok(Self::Failed),
+            "TAKEN_OVER" => Ok(Self::TakenOver),
             other => Err(DomainError::InvalidStateName {
                 machine: "auth session",
                 raw: other.to_owned(),
@@ -473,10 +490,25 @@ mod tests {
             assert!(start.transition_to(AuthSessionState::Revoked).is_ok());
             assert!(start.transition_to(AuthSessionState::Expired).is_ok());
         }
-        // an authorized session can only expire or be revoked, not "fail"
+        // an authorized session can only expire, be revoked, or be taken
+        // over — never "fail" backwards
         assert!(
             AuthSessionState::Authorized
                 .transition_to(AuthSessionState::Failed)
+                .is_err()
+        );
+        assert_eq!(
+            AuthSessionState::Authorized.transition_to(AuthSessionState::TakenOver),
+            Ok(AuthSessionState::TakenOver)
+        );
+        assert_eq!(
+            AuthSessionState::TakenOver.transition_to(AuthSessionState::Authorized),
+            Ok(AuthSessionState::Authorized)
+        );
+        // a takeover cannot start from a login that never completed
+        assert!(
+            AuthSessionState::Pending
+                .transition_to(AuthSessionState::TakenOver)
                 .is_err()
         );
     }
@@ -518,6 +550,7 @@ mod tests {
             AuthSessionState::Expired,
             AuthSessionState::Revoked,
             AuthSessionState::Failed,
+            AuthSessionState::TakenOver,
         ] {
             assert_eq!(AuthSessionState::parse(state.as_str()), Ok(state));
             assert_eq!(state.to_string(), state.as_str());

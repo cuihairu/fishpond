@@ -558,6 +558,7 @@ name = "fishpond-server"
 version = "0.1.0"
 dependencies = [
  "fishpond-domain",
+ "fishpond-runtime",
  "fishpond-storage",
  "tokio",
 ]

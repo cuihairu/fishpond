@@ -32,6 +32,17 @@ pub enum ServiceError {
         /// Why the operation conflicts with current state.
         reason: String,
     },
+    /// The session's pinned credential generation no longer matches the
+    /// stored envelope (F011 rotation detection): the session was
+    /// expired and the login must be redone.
+    ReauthRequired {
+        /// The expired session's id.
+        session: String,
+        /// The generation the session pinned.
+        pinned: i32,
+        /// The credential's current generation.
+        current: i32,
+    },
     /// Persistence failed.
     Storage(StorageError),
     /// A domain invariant was violated (bridged unchanged).
@@ -73,6 +84,15 @@ impl std::fmt::Display for ServiceError {
             Self::Conflict { what, id, reason } => {
                 write!(f, "conflict on {what} {id}: {reason}")
             }
+            Self::ReauthRequired {
+                session,
+                pinned,
+                current,
+            } => write!(
+                f,
+                "credential rotated: session {session} pinned generation {pinned}, \
+                 current is {current}; re-authentication required"
+            ),
             Self::Storage(e) => write!(f, "storage error: {e}"),
             Self::Domain(e) => write!(f, "domain invariant violated: {e}"),
         }
@@ -84,7 +104,10 @@ impl std::error::Error for ServiceError {
         match self {
             Self::Storage(e) => Some(e),
             Self::Domain(e) => Some(e),
-            Self::NotFound { .. } | Self::Invalid { .. } | Self::Conflict { .. } => None,
+            Self::NotFound { .. }
+            | Self::Invalid { .. }
+            | Self::Conflict { .. }
+            | Self::ReauthRequired { .. } => None,
         }
     }
 }
@@ -112,6 +135,7 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn storage_not_found_reshapes_not_wraps() {
@@ -130,5 +154,19 @@ mod tests {
             ServiceError::conflict("auth session", "s-1", "account already has a live session");
         assert!(err.to_string().contains("s-1"));
         assert!(err.to_string().contains("live session"));
+    }
+
+    #[test]
+    fn reauth_required_names_both_generations() {
+        let err = ServiceError::ReauthRequired {
+            session: "s-9".to_owned(),
+            pinned: 3,
+            current: 7,
+        };
+        let text = err.to_string();
+        assert!(text.contains("s-9"));
+        assert!(text.contains("pinned generation 3"));
+        assert!(text.contains("current is 7"));
+        assert!(err.source().is_none());
     }
 }

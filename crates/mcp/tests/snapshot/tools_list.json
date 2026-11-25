@@ -1,0 +1,243 @@
+[
+  {
+    "description": "Get one account by id, including its state-machine string. Idempotent read, tenant-scoped: accounts of other tenants are reported as not found. `UNKNOWN` state means the observed state could not be verified (neither confirmed online nor offline).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "description": "Identifier of the resource to fetch.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "get_account"
+  },
+  {
+    "description": "Get one operation by id, including its attempt summaries. Idempotent read, tenant-scoped: operations of other tenants are reported as not found.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "description": "Identifier of the resource to fetch.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "get_operation"
+  },
+  {
+    "description": "Get one product by id. Idempotent read, tenant-scoped: products of other tenants are reported as not found.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "description": "Identifier of the resource to fetch.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "get_product"
+  },
+  {
+    "description": "List accounts of the authenticated tenant. Idempotent read; results are scoped to the tenant of the API key, so other tenants' accounts are never visible. Account `state` follows the Fishpond state machine; `UNKNOWN` means the observed state could not be verified.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "cursor": {
+          "description": "Opaque pagination cursor from a previous response.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Maximum number of items to return (1-100, default 20).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_accounts"
+  },
+  {
+    "description": "List conversations, optionally filtered by account id. Idempotent read, tenant-scoped by the API key.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "accountId": {
+          "description": "Only list conversations of this account.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cursor": {
+          "description": "Opaque pagination cursor from a previous response.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Maximum number of items to return (1-100, default 20).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_conversations"
+  },
+  {
+    "description": "List messages of one conversation, oldest first. Idempotent read, tenant-scoped by the API key.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "conversationId": {
+          "description": "Conversation whose messages to list.",
+          "type": "string"
+        },
+        "cursor": {
+          "description": "Opaque pagination cursor from a previous response.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Maximum number of items to return (1-100, default 20).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "conversationId"
+      ],
+      "type": "object"
+    },
+    "name": "list_messages"
+  },
+  {
+    "description": "List operations (intents) of the authenticated tenant. Idempotent read, tenant-scoped by the API key.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "cursor": {
+          "description": "Opaque pagination cursor from a previous response.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Maximum number of items to return (1-100, default 20).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_operations"
+  },
+  {
+    "description": "List products of the authenticated tenant. Idempotent read, tenant-scoped by the API key.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "cursor": {
+          "description": "Opaque pagination cursor from a previous response.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Maximum number of items to return (1-100, default 20).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_products"
+  },
+  {
+    "description": "Send a message in a conversation through the provider. M0 routes through the Mock provider only; real providers stay disabled. Idempotency: `idempotency_key` is REQUIRED and acts as the REST Idempotency-Key header; replaying the same key returns the original message with `deduplicated: true` and never double-sends. Tenant-scoped by the API key; requires the conversations:write scope.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "conversationId": {
+          "description": "Target conversation id.",
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "REQUIRED idempotency key (REST Idempotency-Key header equivalent). \\\nReplaying the same key returns the original message.",
+          "type": "string"
+        },
+        "text": {
+          "description": "Message body to send.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conversationId",
+        "text",
+        "idempotencyKey"
+      ],
+      "type": "object"
+    },
+    "name": "send_message"
+  },
+  {
+    "description": "Read recent events of the authenticated tenant (snapshot). Idempotent read, tenant-scoped by the API key. M0 returns a snapshot; live push as MCP notifications is planned for M1 once the event pipeline (F017) lands.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "description": "Maximum number of events to return (1-100, default 20).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "name": "subscribe_events"
+  }
+]

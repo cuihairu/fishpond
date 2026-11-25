@@ -38,6 +38,34 @@ cargo fmt && cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+## MCP 接入（agent 配置）
+
+Fishpond 提供 MCP（Model Context Protocol）面，工具与 REST `/api/v1` 语义 1:1 对应：账号/会话/消息查询、Mock 发消息、商品/订单（操作）状态、事件快照。默认仅 Mock 后端（真实 Provider 见安全边界）。
+
+stdio 模式（Claude Code 等 agent 托管子进程），在 `.mcp.json` 或等价配置中加入：
+
+```json
+{
+  "mcpServers": {
+    "fishpond": {
+      "command": "fishpond",
+      "args": ["mcp"],
+      "env": {
+        "FISHPOND_API_KEY": "<your-api-key>",
+        "FISHPOND_TENANT_ID": "t-default",
+        "FISHPOND_SCOPES": "all"
+      }
+    }
+  }
+}
+```
+
+本地体验可直接用种子 Mock key：`FISHPOND_API_KEY=fp_mock_key_default_tenant`（租户 `t-default`，全 scope），无需再配 `FISHPOND_TENANT_ID` / `FISHPOND_SCOPES`。
+
+streamable HTTP 模式：`fishpond mcp --transport http --bind 127.0.0.1:8080`，端点为 `POST http://127.0.0.1:8080/mcp`，鉴权走 `x-fishpond-api-key: <key>` 或 `Authorization: Bearer <key>` 请求头。
+
+工具清单与语义：`list_accounts` / `get_account`（状态机含 `UNKNOWN` 观测语义）、`list_conversations` / `list_messages` / `send_message`（必须带 `idempotencyKey`，重放幂等）、`list_products` / `get_product`、`list_operations` / `get_operation`（含 attempt 摘要）、`subscribe_events`（M0 为快照，live 推送随 F017 落地）。所有读操作幂等且按 API key 租户隔离；秘密不出现在日志与错误信息中。选型见 `docs/adr/0002-mcp.md`（rmcp 3.11）。
+
 ## 参考实现（仅供调研，不得直接复制上游代码）
 
 `refs/` 目录（gitignore，不入库）：XianyuAutoAgent（GPL-3.0）、xianyu-auto-reply-fix（AGPL-3.0）、xianyu-pilot-pro（Apache-2.0）、xianyu-guanjia（MIT）、XianYuApis（无许可证）。能力矩阵见 `docs/capability-matrix.md`。

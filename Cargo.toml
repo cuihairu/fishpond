@@ -12,6 +12,7 @@ members = [
     "crates/operations",
     "crates/events",
     "crates/monitor",
+    "crates/mcp",
     "crates/server",
     "crates/worker",
     "crates/cli",

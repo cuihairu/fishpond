@@ -25,6 +25,7 @@ EXPECTED_MEMBERS = {
     "fishpond-operations",
     "fishpond-events",
     "fishpond-monitor",
+    "fishpond-mcp",
     "fishpond-server",
     "fishpond-worker",
     "fishpond-cli",
@@ -32,6 +33,10 @@ EXPECTED_MEMBERS = {
 
 # §3.3: `operations` must never depend on the delivery/front layers.
 FORBIDDEN_IN_OPERATIONS = {"fishpond-server", "fishpond-worker", "fishpond-router"}
+
+# F009M: the MCP facade may only build on the service/domain/storage seam;
+# never on worker/browser-side crates or provider implementations.
+MCP_ALLOWED_INTERNAL = {"fishpond-domain", "fishpond-storage", "fishpond-server"}
 
 # §3.3: provider implementations may only build on the SDK, domain and storage.
 PROVIDER_ALLOWED_INTERNAL = {"fishpond-provider-sdk", "fishpond-domain", "fishpond-storage"}
@@ -68,6 +73,15 @@ def check_provider(name: str, internal: set[str]) -> None:
         errors.append(
             f"{name} depends on {sorted(bad)}: §3.3 allows only "
             f"{sorted(PROVIDER_ALLOWED_INTERNAL)} in provider implementations"
+        )
+
+
+def check_mcp(internal: set[str]) -> None:
+    bad = internal - MCP_ALLOWED_INTERNAL
+    if bad:
+        errors.append(
+            f"fishpond-mcp depends on {sorted(bad)}: F009M allows only "
+            f"{sorted(MCP_ALLOWED_INTERNAL)} in the MCP facade"
         )
 
 
@@ -112,6 +126,8 @@ def main() -> int:
             check_operations(internal)
         if name in PROVIDER_CRATES:
             check_provider(name, internal)
+        if name == "fishpond-mcp":
+            check_mcp(internal)
 
     for err in errors:
         print(f"ERROR: {err}", file=sys.stderr)

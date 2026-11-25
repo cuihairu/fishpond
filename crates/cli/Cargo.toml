@@ -6,5 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[[bin]]
+name = "fishpond"
+path = "src/main.rs"
+
 [lints]
 workspace = true
+
+[dependencies]
+fishpond-mcp = { path = "../mcp" }

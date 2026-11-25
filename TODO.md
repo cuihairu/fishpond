@@ -76,9 +76,21 @@
     - 门禁：`cargo fmt --all --check` 通过、`cargo clippy --workspace --all-targets -- -D warnings` 零警告、`cargo test --workspace` 零失败、`python3 scripts/check_workspace.py` → workspace structure ok: 15 members, layering rules satisfied；CI 工具链对拍 `rustup run 1.88.0` fmt/clippy 均过
   - Limitations / BLOCKED reasons: mock 只做进程内模拟，不发起任何真实连接（§7.3 红线）；故障开关是测试夹具而非生产配置，运行时开关只服务 CI/本地演练。真实 provider 实现（F032/F033）仍待授权。
   - Commit: 3dc7522
-- [ ] F006 PostgreSQL migrations、tenant FK、索引、repository
-  - Dependencies: F003
-  - Commit:
+- [x] F006 PostgreSQL migrations、tenant FK、索引、repository — DONE（2026-11-25 批量令 F003-F008）
+  - Dependencies: F003（DONE）
+  - Implementation files: crates/storage/Cargo.toml（+sqlx 0.8 `runtime-tokio,postgres,macros,migrate`、`default-features=false`；dev-dep tokio）/ crates/storage/migrations/0001_core.sql / crates/storage/src/{lib.rs, error.rs, store.rs} / crates/storage/tests/db_repositories.rs / Cargo.lock
+    - migrations：`0001_core.sql` 建 tenants / accounts / conversations / messages / products 五表；所有表带 `tenant_id`；FK：accounts→tenants、conversations→(accounts,tenants)、messages→(conversations,tenants)、products→tenants；4 个索引 idx_accounts_tenant / idx_conversations_tenant_account / idx_messages_conversation_time / idx_products_tenant；时间列一律 BIGINT epoch ms
+    - 迁移嵌入：`static MIGRATIONS = sqlx::migrate!("./migrations")`（编译期内嵌，CI 无 DB 也能编译；路径必须写成 `./migrations`，sqlx 0.9 宏拒绝无 parent 的相对路径）
+    - Store：`connect(url)`（max_connections=5、acquire_timeout=5s、连上即跑 migrations）/ `run_migrations()`（可重入）/ `pool()`；`TenantRecord{id,name,created_at}`（domain 只有 id 无 Tenant DTO）
+    - repository（全部运行期 `sqlx::query`，刻意不用编译期 `query!` 宏，保证 CI 无 `DATABASE_URL` 可编译）：upsert/get/list tenant；upsert/get/list/update_account_state account（按 tenant 过滤）；upsert/get/list_conversation（按 tenant+account、updated_at 倒序）；insert_message（`ON CONFLICT DO NOTHING RETURNING id` → bool，false=去重命中）/list_messages（`ORDER BY sent_at ASC, id`，按 tenant+conversation 过滤）；upsert/list_product（按 tenant、upsert 走 `DO UPDATE`）
+    - StorageError{Database, Migration, NotFound{what,id}, Domain} + Display / `std::error::Error::source` / From<sqlx::Error>、From<MigrateError>、From<DomainError>；行→DTO 映射经 `domain::Account::new` 等构造器二次校验，脏行会显式报 DomainError 而非静默通过
+  - Commands and actual results:
+    - 真库验证（本机 Postgres 18.6，非超级用户角色 fishpond_test，专用库 fishpond_test）：`FISHPOND_TEST_DATABASE_URL=postgres://…@127.0.0.1:5432/fishpond_test cargo test -p fishpond-storage` → **7 条全 ok，连跑两轮（rerun 稳定，实体会话级唯一 id 避免 PK 冲突）**
+    - 逐条覆盖：五表 + `_sqlx_migrations` 存在、`_sqlx_migrations` 显示 version 1 `core` success（二次 connect 幂等）、4 个索引齐备、tenant upsert→改名单值一致 + NotFound{what:"tenant", id:"t-no-such-tenant"}、账号跨租户列表互不可见（A 只见 A、B 只见 B）、ONLINE→UNKNOWN 带 note 往返一致、会话按 tenant+account 过滤且 updated_at 倒序、消息乱序插入 → 读回 oldest-first 且重复插入返回 `false` 且行数仍为 3、商品跨租户隔离 + upsert 原地更新
+    - 无 DB 降级：不设 `FISHPOND_TEST_DATABASE_URL` 时 6 条真库测试打印 `skip: FISHPOND_TEST_DATABASE_URL is not set (CI has no database)` 并正常通过（CI 无库，§7.3 Mock 是唯一 CI 目标）；`unreachable_database_surfaces_a_database_error` 不依赖库（端口 1 拒连 → `StorageError::Database`），实测 5s 内返回
+    - 门禁：`cargo fmt --all --check` 通过、`cargo clippy --workspace --all-targets -- -D warnings` 零警告、`cargo test --workspace` 零失败、`python3 scripts/check_workspace.py` → workspace structure ok: 15 members, layering rules satisfied；CI 工具链对拍 `rustup run 1.88.0 cargo clippy -p fishpond-storage --all-targets -- -D warnings` 零警告
+  - Limitations / BLOCKED reasons: RLS 属 F007（本任务只保证查询形状上按 tenant 过滤）；messages 自持 `tenant_id` 列是为 RLS/FK 方便，写入时由调用方显式给（`Message` 无 tenant 字段）；测试数据不自动清理（靠每轮唯一 id 规避冲突），本地库仅用于测试，密码只出现在环境变量不进代码/日志。
+  - Commit: eef1d57
 - [ ] F007 租户与 API key、scope、RBAC、RLS 策略及跨租户测试
   - Dependencies: F006
   - Commit:

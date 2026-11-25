@@ -293,6 +293,11 @@ version = "0.1.0"
 [[package]]
 name = "fishpond-provider-sdk"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fishpond-domain",
+ "tokio",
+]
 
 [[package]]
 name = "fishpond-router"

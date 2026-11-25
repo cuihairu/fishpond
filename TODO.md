@@ -45,9 +45,22 @@
     - `cargo clippy -p fishpond-domain --all-targets -- -D warnings` → 零警告；`cargo fmt --all` 已过
   - Limitations / BLOCKED reasons: domain 保持零依赖（serde/时间库禁入），wire 层（REST/MCP）自行映射；DTO 与 F009M 的 MCP wire DTO 并存，整合属 F025。
   - Commit: fd498bf
-- [ ] F004 provider-sdk、manifest、结果语义、版本协商；mock 契约测试 — IN_PROGRESS（2026-11-25 批量令 F003-F008）
+- [x] F004 provider-sdk、manifest、结果语义、版本协商；mock 契约测试 — DONE（2026-11-25 批量令 F003-F008）
   - Dependencies: F003（DONE）
-  - Commit:
+  - Implementation files: crates/provider-sdk/src/{lib.rs, capability.rs, version.rs, result.rs, manifest.rs, provider.rs, contract.rs} + tests/contract_with_stub.rs
+    - capability：7 个能力枚举 + 规范 wire 名（accounts:read … events:stream）与 parse 往返
+    - version：EngineKind、ProtocolVersion(major.minor) 解析/展示、compatible_floor（同 major 取低 minor）、negotiate（降序取最高共享 major + floor）、NegotiateError{NoOverlap, EmptyOffer}
+    - result：ErrorClass 7 类 + retryable 语义（Transient/RateLimited/Timeout/Auth 可重试）、ProviderError{class, code, message, retry_after_ms}、Display 为 `class (code): message`
+    - manifest：provider_id/display_name/provider_version/engine/protocol_versions/capabilities + validate（非空、版本号 x.y[.z] 且至少 x.y、≥1 版本、≥1 能力、禁重复能力）、supports、highest_protocol、content_digest（对版本/能力排序后求哈希 → 与声明顺序无关，内容漂移敏感）
+    - provider：CallContext（write 校验非空幂等键 → Invalid empty_idempotency_key；read 无键）、SendMessageRequest、AuthorizeOutcome{session_ref, expires_at}、SendMessageOutcome{message, deduplicated}、`#[async_trait] Provider`（manifest / negotiate_protocol 默认实现把 NegotiateError 映射为 Unsupported protocol_negotiation_failed / authorize / send_message / list_conversations / list_messages / list_products）
+    - contract：`run_contract_suite(&dyn Provider, &ContractFixture) -> ContractReport` 9 项不变量（manifest 合法、版本协商、授权后发送且首送非去重且出站且文本/会话回环、同键重放返回原 message id 且 deduplicated、历史按时间升序且只含本会话、会话列表含 fixture 会话、空文本 → Invalid 不可重试、未知会话 → Invalid 不可重试、未授权账号 → Auth 可重试）；CheckResult/ContractReport 收集式报告（assert_ok 列全失败项），供 F005 provider-mock 复用
+  - Commands and actual results:
+    - `cargo test -p fishpond-provider-sdk` → 14 单元 + 4 集成 = 18 全 ok（集成：诚实 stub 通过 9 项契约、故意损坏的去重实现被契约套件精确抓到 `["idempotent_replay"]`、V2-only offer 映射为 Unsupported(protocol_negotiation_failed) 不可重试、空白幂等键被拒）
+    - `cargo clippy -p fishpond-provider-sdk --all-targets -- -D warnings` → 零警告；`cargo fmt --all --check` 通过
+    - `cargo test --workspace` → 40 个 test suite 全 ok、零失败；`python3 scripts/check_workspace.py` → workspace structure ok: 15 members, layering rules satisfied
+    - CI 工具链对拍：`rustup run 1.88.0 cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` 均过（1.88 的 uninlined_format_args 已前置规避）
+  - Limitations / BLOCKED reasons: 契约套件仅覆盖 F004 已定义的读/写面（authorize/send/history/catalog）；真实 Provider 实现属 F032/F033（授权受限），CI 唯一目标是 F005 的 mock。manifest 的 content_digest 为 std DefaultHasher，非密码学摘要（F028 灰度比对用）。
+  - Commit: 1e2f5f0
 - [ ] F005 Mock Platform 与 Mock Provider（授权/写入/断连/重复事件故障开关）
   - Dependencies: F004
   - Commit:

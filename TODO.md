@@ -149,7 +149,24 @@
 
 ## M1（F009–F020）：账号/调度/可靠任务与事件
 
-- [ ] F009 账号管理、授权会话、状态 API 服务逻辑（依赖 F006,F008）
+- [x] F009 账号管理、授权会话、状态 API 服务逻辑 — DONE（2026-11-26 批量令 F009-F012）
+  - Dependencies: F006（DONE）,F008（DONE）
+  - Implementation files: crates/domain/src/{state.rs,id.rs,lib.rs}（+AuthSessionState 状态机与 AuthSessionId 强类型 id）/ crates/storage/migrations/0004_auth_sessions.sql / crates/storage/src/{sessions.rs,store.rs,lib.rs}（+auth_sessions 仓储，Store 改 Clone）/ crates/storage/tests/auth_sessions.rs / crates/server/{Cargo.toml,src/{lib.rs,error.rs,accounts.rs,sessions.rs}} / crates/server/tests/{common/mod.rs,f009_services.rs}
+    - domain：AuthSessionState 六态机（PENDING→AWAITING_CONFIRMATION→AUTHORIZED→EXPIRED/REVOKED；PENDING/CONFIRMING 可 FAILED；三终态无出口，AUTHORIZED 不可 FAILED），TRANSITIONS 表 + parse/as_str/transition_to/is_terminal，4 条单测；AuthSessionId 走既有 define_id! 校验宏
+    - 迁移 0004：auth_sessions（tenant FK + account FK + credential FK + credential_version 版本钉 + expires_at + state/state_note），ENABLE + FORCE RLS + USING/WITH CHECK 策略，tenant/account 两个索引；credential_version 即 F011 凭据版本钉的存储位
+    - storage：AuthSessionRecord/NewAuthSession/AuthSessionUpdate（partial update：COALESCE 保未绑定列，clear_note 显式清 note）+ insert/get/list（按 account 过滤）/update/delete，全部 begin_tenant 绑定事务；Store 加 #[derive(Clone)]（PgPool 引用计数，服务各持句柄共享连接池）
+    - server::Accounts：register（OFFLINE 起步，重复注册 Conflict 不许静默覆盖）、get/list/exists、set_state（强制走 domain 状态机，同态非法）、status()（StatusSummary 四态计数含 0，UNKNOWN 照实上报不解映射）
+    - server::Sessions：start（账号须存在且非 DISABLED）/mark_confirmation/authorize（凭据必须存在且未撤销才可绑定，钉 credential_version）/expire/revoke/fail/get/list/live_for_account（AUTHORIZED 且未过期才算 live）；每次转换先读当前态再过 domain 机器
+  - Commands and actual results:
+    - 真库验证：`FISHPOND_TEST_DATABASE_URL=postgres://fishpond_test:fishpond_test@127.0.0.1:5432/fishpond_test cargo test -p fishpond-server -p fishpond-storage` → 34 条全 ok（含 2 条 F009 存储验收 + 3 条 F009 服务验收 + 2 条 ServiceError 单测），连跑两轮 rerun 稳定
+    - 验收逐条：账号注册/状态机/状态汇总（重复注册 Conflict、OFFLINE→ONLINE→UNKNOWN 全程合法、同态更新被拒（UNKNOWN->UNKNOWN）、DISABLED 终态无出口、summary.unknown 照实计数）；会话生命周期绑定真凭据（PENDING→CONFIRMING→AUTHORIZED 钉 version=7、live_for_account 随过期清零、EXPIRED 终态无出口、撤销凭据不能再绑新会话 → NotFound）；租户隔离（B 对 A 的账号/会话 get/revoke/list 全 NotFound/空、错误文本不含秘密）
+    - 门禁：`cargo fmt --all --check` 通过；`cargo clippy --workspace --all-targets -- -D warnings` 双工具链（1.100 与 CI 1.88.0）零警告；`cargo test --workspace` 真库路径 123 passed / 0 failed（CI 无 DB 路径同绿）；`python3 scripts/check_workspace.py` → 15 members, layering rules satisfied
+  - Limitations / BLOCKED reasons:
+    - server 测试与 storage 测试各持一份 gated/common 助手（跨 crate 的 tests/ 无法共享，接受小重复）。
+    - 会话列表暂无分页（服务返回全量，wire 层 F025 负责切片/游标）；list_auth_sessions 按 created_at,id 排序保证确定性。
+    - start 之后的 PENDING 会话无自动过期任务（expires_at 只是钉子）；过期清扫属调度面（F013/F015），本层只提供 live_for_account 判定。
+    - 重复注册检查是先读后写（无 DB 唯一约束兜底并发）；并发注册由 F012 的 lease/CAS 面统一处理。
+  - Commit: c0055be
 - [ ] F010 AccountSupervisor/Actor、bounded mailbox、取消、重启（依赖 F009）
 - [ ] F011 SessionCoordinator、凭据版本、互斥、人工接管状态转换（依赖 F010）
 - [ ] F012 Worker 注册、心跳、lease/generation、CAS；T01/T02/T20（依赖 F006,F010）

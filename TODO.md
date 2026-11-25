@@ -91,9 +91,24 @@
     - 门禁：`cargo fmt --all --check` 通过、`cargo clippy --workspace --all-targets -- -D warnings` 零警告、`cargo test --workspace` 零失败、`python3 scripts/check_workspace.py` → workspace structure ok: 15 members, layering rules satisfied；CI 工具链对拍 `rustup run 1.88.0 cargo clippy -p fishpond-storage --all-targets -- -D warnings` 零警告
   - Limitations / BLOCKED reasons: RLS 属 F007（本任务只保证查询形状上按 tenant 过滤）；messages 自持 `tenant_id` 列是为 RLS/FK 方便，写入时由调用方显式给（`Message` 无 tenant 字段）；测试数据不自动清理（靠每轮唯一 id 规避冲突），本地库仅用于测试，密码只出现在环境变量不进代码/日志。
   - Commit: eef1d57
-- [ ] F007 租户与 API key、scope、RBAC、RLS 策略及跨租户测试
-  - Dependencies: F006
-  - Commit:
+- [x] F007 租户与 API key、scope、RBAC、RLS 策略及跨租户测试 — DONE（2026-11-25 批量令 F003-F008）
+  - Dependencies: F006（DONE）
+  - Implementation files: crates/storage/migrations/0002_tenant_keys_and_rls.sql / crates/storage/src/{authz.rs, error.rs, store.rs, lib.rs} / crates/storage/Cargo.toml（+sha2 0.10）/ crates/storage/tests/{tenant_isolation.rs, db_repositories.rs, common/mod.rs} / Cargo.lock
+    - 迁移 0002：tenant_roles（RBAC 角色=scope 捆绑，种子 owner/operator/viewer）+ api_keys（key_hash 主键=SHA-256 hex、key_hint 尾 4 字符、tenant FK、role FK、scopes TEXT[] 发签时冻结、created/expires/revoked/revoked_at）；tenant-owned 五表全部 ENABLE + FORCE ROW LEVEL SECURITY，每表一条 `USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (…)` ALL 策略；未绑定会话读零行写零行（fail closed）
+    - Store::begin_tenant(tenant)：事务级 `set_config('app.tenant', …, TRUE)` 绑定（事务结束自动失效，连接池下不泄漏租户）；全部 repository 方法改为在租户绑定事务内执行，隔离由 `WHERE tenant_id` **和** RLS 双层保证；get_account/get_conversation/update_account_state 增加必填 tenant 参数（裸 id 是他租户可达的越权面，RLS 下本就该按租户寻址）；pool() 文档明确未绑定访问对租户表零可见
+    - authz：hash_api_key（SHA-256，高熵随机 key 免盐）、key_hint 只存尾 4 字符、upsert_role/list_roles、issue_api_key（冻结 role scope；role 不存在 → NotFound）、resolve_api_key（revoked/expired/unknown 一律 None，不构成 oracle）、revoke_api_key（幂等，二次返回 false）、require_scope（缺 scope → PermissionDenied{tenant, role, scope}，报错永不回显 key 原文）；scope 词汇与 crates/mcp/src/auth.rs 一致（accounts:read … events:read），ApiKeyRecord{tenant_id, scopes} 语义对应 M0 内存 key store
+  - Commands and actual results:
+    - 真库验证（本机 Postgres 18.6，非超级用户 fishpond_test——超级用户绕过 RLS，会让隔离断言全空转）：`FISHPOND_TEST_DATABASE_URL=postgres://fishpond_test:fishpond_test@127.0.0.1:5432/fishpond_test cargo test -p fishpond-storage` → **15 条全 ok（3 单元 + 7 F006 回归 + 5 F007 验收），连跑两轮 rerun 稳定**
+    - F007 验收逐条：RBAC 种子词汇（owner/operator 全 6 scope、viewer 无 conversations:write 且 5 scope）、role upsert 幂等、key 发签冻结 role scope（事后放宽 role 不影响已发 key）、viewer 缺写 scope → PermissionDenied 且错误串/存储记录均不含 key 原文、自定义角色可发签、revoked/expired/unknown/blank 一律不解析、撤销幂等、list 回 hash 不回原文
+    - RLS 跨租户（故意在绑定事务内跑**无 WHERE** 的 SQL，让数据库而非查询形状做隔离）：A 绑定会话 SELECT accounts/tenants/conversations/messages/products 只见 A 自己的行；B 同理；未绑定 pool 对五表读零行；未绑定 INSERT 被 WITH CHECK 拒绝；A 绑定下无 WHERE 的 UPDATE 只命中 A 的行（rows_affected=1）且 B 行平台字段未被污染；A 绑定 INSERT 伪装 tenant_id=B 被 WITH CHECK 拒绝；A 绑定 DELETE 只删 A 行、B 数据完好
+    - 无 DB 降级（CI）：不设环境变量时 12 条真库测试全部走 skip 分支正常通过（§7.3 Mock 是唯一 CI 目标），unreachable_database_surfaces_a_database_error 不依赖库仍验证错误面
+    - 门禁：`cargo fmt --all --check` 通过；`cargo clippy --workspace --all-targets -- -D warnings` 零警告；`cargo test --workspace` → 45 个 test suite 全 ok、100 passed、0 failed；`python3 scripts/check_workspace.py` → workspace structure ok: 15 members, layering rules satisfied；CI 工具链对拍 `rustup run 1.88.0` fmt/clippy 全过
+  - Limitations / BLOCKED reasons:
+    - 初版迁移漏写 `ENABLE ROW LEVEL SECURITY`（只写了 FORCE，策略实际休眠）——本机真库测试抓到后已修（0002 尚未提交前即修正，未发布过任何错误迁移；本地测试库按 checksum 变更手工重放了 0002）。
+    - tenant_roles/api_keys 不带 RLS：key 必须在知道租户前可解析，且表内只有 hash 与公开元数据；运维/迁移操作走超级用户（按设计绕过 RLS）。
+    - messages 无 tenant 字段的写入仍由调用方显式给 tenant（沿 F006 决策）；跨租户写测试证明即使调用方谎报 tenant_id，WITH CHECK 也会拒绝。
+    - 角色种子是迁移内固定词汇；运行时改角色 scope 只影响新发 key（冻结语义），不追溯。
+  - Commit: 580fe97
 - [ ] F008 Credential Store 信封加密、轮换、撤销；秘密不进日志测试
   - Dependencies: F006
   - Commit:

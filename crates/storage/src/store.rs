@@ -1,18 +1,24 @@
 //! PostgreSQL store: schema migrations and tenant-scoped repositories.
 //!
-//! All rows carry the owning `tenant_id`; every list/read query is scoped
-//! by it so tenant isolation is enforced by the query shape itself (RLS
-//! policies layered on top in F007). Migrations are embedded at compile
-//! time via [`sqlx::migrate!`] so CI builds without a database, and the
-//! same runtime queries avoid sqlx's compile-time verification (also
-//! skipped when no database is available at build time).
+//! Every row carries the owning `tenant_id` and every repository method
+//! runs inside a transaction bound to that tenant
+//! ([`Store::begin_tenant`]), so isolation is enforced twice: by the
+//! `WHERE tenant_id = $1` clause *and* by the row-level security policies
+//! of migration 0002. Binding is transaction-local, so a pooled connection
+//! can never leak a tenant to a later caller. Unbound sessions (raw pool
+//! access) see no rows — fail closed; migration and operational work runs
+//! as a superuser, which bypasses row-level security.
+//!
+//! Migrations embed at compile time via [`sqlx::migrate!`], so CI builds
+//! without a database, and the runtime queries below avoid sqlx's
+//! compile-time verification (also skipped without a database).
 
 use fishpond_domain::{
     Account, AccountId, AccountState, Conversation, ConversationId, Message, MessageDirection,
     Product, ProductId, ProductStatus, TenantId, UnixMillis,
 };
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 
 use crate::error::{StorageError, StorageResult};
 
@@ -32,7 +38,7 @@ pub struct TenantRecord {
 
 /// Owns the pool and the repository surface.
 pub struct Store {
-    pool: PgPool,
+    pub(crate) pool: PgPool,
 }
 
 impl Store {
@@ -56,15 +62,40 @@ impl Store {
         Ok(())
     }
 
-    /// The underlying pool (tests and higher layers with raw SQL needs).
+    /// The underlying pool.
+    ///
+    /// Raw pool access is **not** bound to any tenant, so under the RLS
+    /// policies of migration 0002 it sees and writes nothing in the
+    /// tenant-owned tables. Use it for schema/system-catalog queries, or
+    /// prefer [`Store::begin_tenant`] for tenant data.
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Begins a transaction with its connection bound to `tenant`.
+    ///
+    /// Row-level security compares rows against `current_setting('app.tenant')`,
+    /// so a bound transaction only ever sees — and may only write — the
+    /// rows of its own tenant, even from unfiltered SQL. The binding is
+    /// transaction-local (it dies with the transaction) and therefore safe
+    /// with a pooled connection. Unbound sessions match nothing.
+    pub async fn begin_tenant(
+        &self,
+        tenant: &TenantId,
+    ) -> StorageResult<Transaction<'_, Postgres>> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT set_config('app.tenant', $1, TRUE)")
+            .bind(tenant.as_str())
+            .execute(&mut *tx)
+            .await?;
+        Ok(tx)
     }
 
     // ---- tenants ----
 
     /// Inserts or updates a tenant row.
     pub async fn upsert_tenant(&self, tenant: &TenantRecord) -> StorageResult<()> {
+        let mut tx = self.begin_tenant(&tenant.id).await?;
         sqlx::query(
             "INSERT INTO tenants (id, name, created_at) VALUES ($1, $2, $3)
              ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, created_at = EXCLUDED.created_at",
@@ -72,21 +103,24 @@ impl Store {
         .bind(tenant.id.as_str())
         .bind(&tenant.name)
         .bind(tenant.created_at.as_millis())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(())
     }
 
     /// Fetches one tenant, or [`StorageError::NotFound`].
     pub async fn get_tenant(&self, id: &TenantId) -> StorageResult<TenantRecord> {
+        let mut tx = self.begin_tenant(id).await?;
         let row = sqlx::query("SELECT id, name, created_at FROM tenants WHERE id = $1")
             .bind(id.as_str())
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| StorageError::NotFound {
-                what: "tenant",
-                id: id.as_str().to_owned(),
-            })?;
+            .fetch_optional(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        let row = row.ok_or_else(|| StorageError::NotFound {
+            what: "tenant",
+            id: id.as_str().to_owned(),
+        })?;
         Ok(TenantRecord {
             id: TenantId::parse(row.try_get::<String, _>("id")?)?,
             name: row.try_get::<String, _>("name")?,
@@ -98,6 +132,7 @@ impl Store {
 
     /// Inserts or updates an account row.
     pub async fn upsert_account(&self, account: &Account) -> StorageResult<()> {
+        let mut tx = self.begin_tenant(&account.tenant_id).await?;
         sqlx::query(
             "INSERT INTO accounts (id, tenant_id, platform, state, state_note, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6)
@@ -113,21 +148,26 @@ impl Store {
         .bind(account.state.as_str())
         .bind(&account.state_note)
         .bind(account.updated_at.as_millis())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(())
     }
 
-    /// Fetches one account, or [`StorageError::NotFound`].
-    pub async fn get_account(&self, id: &AccountId) -> StorageResult<Account> {
+    /// Fetches one account **of `tenant`**, or [`StorageError::NotFound`].
+    /// The tenant parameter is mandatory: an account id alone names a row
+    /// another tenant may own, which row-level security refuses to return.
+    pub async fn get_account(&self, tenant: &TenantId, id: &AccountId) -> StorageResult<Account> {
+        let mut tx = self.begin_tenant(tenant).await?;
         let row = sqlx::query(
             "SELECT id, tenant_id, platform, state, state_note, updated_at
              FROM accounts WHERE id = $1",
         )
         .bind(id.as_str())
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| StorageError::NotFound {
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let row = row.ok_or_else(|| StorageError::NotFound {
             what: "account",
             id: id.as_str().to_owned(),
         })?;
@@ -136,24 +176,31 @@ impl Store {
 
     /// Lists a tenant's accounts, ordered by id.
     pub async fn list_accounts(&self, tenant: &TenantId) -> StorageResult<Vec<Account>> {
+        let mut tx = self.begin_tenant(tenant).await?;
         let rows = sqlx::query(
             "SELECT id, tenant_id, platform, state, state_note, updated_at
              FROM accounts WHERE tenant_id = $1 ORDER BY id",
         )
         .bind(tenant.as_str())
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
+        tx.commit().await?;
         rows.iter().map(map_account).collect()
     }
 
-    /// Updates an account's state/note and returns the fresh row.
+    /// Updates an account's state/note for `tenant` and returns the fresh
+    /// row, or [`StorageError::NotFound`] when the account does not belong
+    /// to that tenant (the update affects no row and the re-read sees
+    /// nothing, by policy).
     pub async fn update_account_state(
         &self,
+        tenant: &TenantId,
         id: &AccountId,
         state: AccountState,
         state_note: Option<String>,
         at: UnixMillis,
     ) -> StorageResult<Account> {
+        let mut tx = self.begin_tenant(tenant).await?;
         sqlx::query(
             "UPDATE accounts SET state = $2, state_note = $3, updated_at = $4 WHERE id = $1",
         )
@@ -161,15 +208,28 @@ impl Store {
         .bind(state.as_str())
         .bind(state_note)
         .bind(at.as_millis())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-        self.get_account(id).await
+        let row = sqlx::query(
+            "SELECT id, tenant_id, platform, state, state_note, updated_at
+             FROM accounts WHERE id = $1",
+        )
+        .bind(id.as_str())
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let row = row.ok_or_else(|| StorageError::NotFound {
+            what: "account",
+            id: id.as_str().to_owned(),
+        })?;
+        map_account(&row)
     }
 
     // ---- conversations ----
 
     /// Inserts or updates a conversation row.
     pub async fn upsert_conversation(&self, conversation: &Conversation) -> StorageResult<()> {
+        let mut tx = self.begin_tenant(&conversation.tenant_id).await?;
         sqlx::query(
             "INSERT INTO conversations (id, account_id, tenant_id, updated_at)
              VALUES ($1, $2, $3, $4)
@@ -182,30 +242,33 @@ impl Store {
         .bind(conversation.account_id.as_str())
         .bind(conversation.tenant_id.as_str())
         .bind(conversation.updated_at.as_millis())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(())
     }
 
-    /// Fetches one conversation, or [`StorageError::NotFound`].
-    pub async fn get_conversation(&self, id: &ConversationId) -> StorageResult<Conversation> {
+    /// Fetches one conversation **of `tenant`**, or
+    /// [`StorageError::NotFound`].
+    pub async fn get_conversation(
+        &self,
+        tenant: &TenantId,
+        id: &ConversationId,
+    ) -> StorageResult<Conversation> {
+        let mut tx = self.begin_tenant(tenant).await?;
         let row = sqlx::query(
             "SELECT id, account_id, tenant_id, updated_at
              FROM conversations WHERE id = $1",
         )
         .bind(id.as_str())
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| StorageError::NotFound {
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let row = row.ok_or_else(|| StorageError::NotFound {
             what: "conversation",
             id: id.as_str().to_owned(),
         })?;
-        Ok(Conversation {
-            id: ConversationId::parse(row.try_get::<String, _>("id")?)?,
-            account_id: AccountId::parse(row.try_get::<String, _>("account_id")?)?,
-            tenant_id: TenantId::parse(row.try_get::<String, _>("tenant_id")?)?,
-            updated_at: UnixMillis::from_millis(row.try_get::<i64, _>("updated_at")?)?,
-        })
+        map_conversation(&row)
     }
 
     /// Lists a tenant+account's conversations, most recently updated first.
@@ -214,6 +277,7 @@ impl Store {
         tenant: &TenantId,
         account: &AccountId,
     ) -> StorageResult<Vec<Conversation>> {
+        let mut tx = self.begin_tenant(tenant).await?;
         let rows = sqlx::query(
             "SELECT id, account_id, tenant_id, updated_at
              FROM conversations
@@ -222,18 +286,10 @@ impl Store {
         )
         .bind(tenant.as_str())
         .bind(account.as_str())
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
-        rows.iter()
-            .map(|row| {
-                Ok(Conversation {
-                    id: ConversationId::parse(row.try_get::<String, _>("id")?)?,
-                    account_id: AccountId::parse(row.try_get::<String, _>("account_id")?)?,
-                    tenant_id: TenantId::parse(row.try_get::<String, _>("tenant_id")?)?,
-                    updated_at: UnixMillis::from_millis(row.try_get::<i64, _>("updated_at")?)?,
-                })
-            })
-            .collect()
+        tx.commit().await?;
+        rows.iter().map(map_conversation).collect()
     }
 
     // ---- messages ----
@@ -247,6 +303,7 @@ impl Store {
         tenant: &TenantId,
         message: &Message,
     ) -> StorageResult<bool> {
+        let mut tx = self.begin_tenant(tenant).await?;
         let row = sqlx::query(
             "INSERT INTO messages (id, conversation_id, tenant_id, direction, text, sent_at)
              VALUES ($1, $2, $3, $4, $5, $6)
@@ -259,8 +316,9 @@ impl Store {
         .bind(message.direction.as_str())
         .bind(&message.text)
         .bind(message.sent_at.as_millis())
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(row.is_some())
     }
 
@@ -270,6 +328,7 @@ impl Store {
         tenant: &TenantId,
         conversation: &ConversationId,
     ) -> StorageResult<Vec<Message>> {
+        let mut tx = self.begin_tenant(tenant).await?;
         let rows = sqlx::query(
             "SELECT id, conversation_id, tenant_id, direction, text, sent_at
              FROM messages
@@ -278,8 +337,9 @@ impl Store {
         )
         .bind(tenant.as_str())
         .bind(conversation.as_str())
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
+        tx.commit().await?;
         rows.iter().map(map_message).collect()
     }
 
@@ -287,6 +347,7 @@ impl Store {
 
     /// Inserts or updates a product row.
     pub async fn upsert_product(&self, product: &Product) -> StorageResult<()> {
+        let mut tx = self.begin_tenant(&product.tenant_id).await?;
         sqlx::query(
             "INSERT INTO products (id, tenant_id, title, price_cents, currency, status, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -304,20 +365,23 @@ impl Store {
         .bind(&product.currency)
         .bind(product.status.as_str())
         .bind(product.updated_at.as_millis())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(())
     }
 
     /// Lists a tenant's products, ordered by id.
     pub async fn list_products(&self, tenant: &TenantId) -> StorageResult<Vec<Product>> {
+        let mut tx = self.begin_tenant(tenant).await?;
         let rows = sqlx::query(
             "SELECT id, tenant_id, title, price_cents, currency, status, updated_at
              FROM products WHERE tenant_id = $1 ORDER BY id",
         )
         .bind(tenant.as_str())
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
+        tx.commit().await?;
         rows.iter().map(map_product).collect()
     }
 }
@@ -334,6 +398,16 @@ fn map_account(row: &sqlx::postgres::PgRow) -> StorageResult<Account> {
         note,
         UnixMillis::from_millis(row.try_get::<i64, _>("updated_at")?)?,
     )?)
+}
+
+/// Maps a conversation row back into the domain type.
+fn map_conversation(row: &sqlx::postgres::PgRow) -> StorageResult<Conversation> {
+    Ok(Conversation {
+        id: ConversationId::parse(row.try_get::<String, _>("id")?)?,
+        account_id: AccountId::parse(row.try_get::<String, _>("account_id")?)?,
+        tenant_id: TenantId::parse(row.try_get::<String, _>("tenant_id")?)?,
+        updated_at: UnixMillis::from_millis(row.try_get::<i64, _>("updated_at")?)?,
+    })
 }
 
 /// Maps a message row back into the validated domain type.

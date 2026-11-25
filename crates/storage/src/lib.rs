@@ -1,13 +1,24 @@
 //! fishpond-storage: persistence — PostgreSQL migrations and tenant-scoped
 //! repositories (§3.3).
 //!
-//! Queries are tenant-scoped by construction; F007 layers row-level
-//! security on top. CI builds without a database: migrations embed at
-//! compile time and the tests skip when `FISHPOND_TEST_DATABASE_URL` is
-//! unset.
+//! Tenant isolation is enforced twice: every query filters on `tenant_id`,
+//! and migration 0002 adds row-level security that applies to the
+//! application role as well (`FORCE ROW LEVEL SECURITY`). Each repository
+//! call therefore runs in a transaction bound to its tenant, and unbound
+//! sessions fail closed.
+//!
+//! `authz` (F007) holds API keys as SHA-256 hashes with frozen RBAC scopes;
+//! CI builds without a database: migrations embed at compile time and the
+//! tests skip when `FISHPOND_TEST_DATABASE_URL` is unset.
 
+pub mod authz;
 pub mod error;
 pub mod store;
 
+pub use authz::{
+    ApiKeyRecord, ResolvedKey, RoleRecord, SCOPE_ACCOUNTS_READ, SCOPE_ALL, SCOPE_CATALOG_READ,
+    SCOPE_CONVERSATIONS_READ, SCOPE_CONVERSATIONS_WRITE, SCOPE_EVENTS_READ, SCOPE_OPERATIONS_READ,
+    hash_api_key, require_scope,
+};
 pub use error::{StorageError, StorageResult};
 pub use store::{Store, TenantRecord};

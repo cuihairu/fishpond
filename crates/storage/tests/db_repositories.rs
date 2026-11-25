@@ -3,72 +3,20 @@
 //! Tests run against a real database when `FISHPOND_TEST_DATABASE_URL` is
 //! set (e.g.
 //! `postgres://fishpond_test:fishpond_test@127.0.0.1:5432/fishpond_test`,
-//! a non-superuser role so F007's RLS can be exercised later). Without the
-//! variable they skip, because CI has no database and Mock is the only CI
-//! target (§7.3).
+//! a non-superuser role so F007's row-level security applies to the
+//! application). Without the variable they skip, because CI has no
+//! database and Mock is the only CI target (§7.3). Since F007 these calls
+//! also prove the store keeps binding every call to its own tenant.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+mod common;
+
+use common::*;
 
 use fishpond_domain::{
-    Account, AccountId, AccountState, Conversation, ConversationId, Message, MessageDirection,
-    Product, ProductId, ProductStatus, TenantId, UnixMillis,
+    AccountState, Conversation, ConversationId, Message, MessageDirection, Product, ProductId,
+    ProductStatus, TenantId,
 };
-use fishpond_storage::{StorageError, Store, TenantRecord};
-
-const ENV: &str = "FISHPOND_TEST_DATABASE_URL";
-
-fn db_url() -> Option<String> {
-    std::env::var(ENV).ok().filter(|v| !v.trim().is_empty())
-}
-
-/// A token unique to this test invocation so reruns never collide (entity
-/// ids are primary keys, so they must not repeat across runs).
-fn unique_token(tag: &str) -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock is after the epoch")
-        .as_nanos();
-    format!("{tag}-{}-{nanos}", std::process::id())
-}
-
-/// A tenant id unique to this test invocation so reruns never collide.
-fn unique_tenant(tag: &str) -> TenantId {
-    TenantId::parse(unique_token(tag)).expect("generated tenant id is valid")
-}
-
-/// Any other entity id unique to this run (`prefix` keeps it readable).
-fn unique_entity(prefix: &str, tag: &str) -> String {
-    format!("{prefix}-{}", unique_token(tag))
-}
-
-async fn gated() -> Option<Store> {
-    let url = db_url()?;
-    Some(Store::connect(&url).await.expect("connect + migrate"))
-}
-
-fn ts(millis: i64) -> UnixMillis {
-    UnixMillis::from_millis(millis).expect("non-negative millis")
-}
-
-fn tenant_record(id: &TenantId, name: &str) -> TenantRecord {
-    TenantRecord {
-        id: id.clone(),
-        name: name.to_owned(),
-        created_at: ts(1_000),
-    }
-}
-
-fn account(id: &str, tenant: &TenantId, state: AccountState, note: Option<String>) -> Account {
-    Account::new(
-        AccountId::parse(id).expect("account id is valid"),
-        tenant.clone(),
-        "mock",
-        state,
-        note,
-        ts(2_000),
-    )
-    .expect("account satisfies its invariants")
-}
+use fishpond_storage::{StorageError, Store};
 
 #[tokio::test]
 async fn migrations_create_the_core_schema_and_are_idempotent() {
@@ -194,6 +142,7 @@ async fn account_state_updates_and_tenant_scoped_listing() {
     // ONLINE -> UNKNOWN needs a note; the updated row round-trips it.
     let updated = store
         .update_account_state(
+            &tenant_a,
             &account_a.id,
             AccountState::Unknown,
             Some("reconcile pending".to_owned()),
@@ -204,7 +153,7 @@ async fn account_state_updates_and_tenant_scoped_listing() {
     assert_eq!(updated.state, AccountState::Unknown);
     assert_eq!(updated.state_note.as_deref(), Some("reconcile pending"));
     assert_eq!(updated.updated_at, ts(3_000));
-    let reread = store.get_account(&account_a.id).await.unwrap();
+    let reread = store.get_account(&tenant_a, &account_a.id).await.unwrap();
     assert_eq!(reread, updated);
 }
 

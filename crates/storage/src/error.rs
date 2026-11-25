@@ -16,6 +16,22 @@ pub enum StorageError {
         /// The id that was not found.
         id: String,
     },
+    /// An authenticated key lacks the scope required for an operation.
+    PermissionDenied {
+        /// The tenant of the key.
+        tenant: String,
+        /// The role carried by the key.
+        role: String,
+        /// The missing scope (e.g. "conversations:write").
+        scope: String,
+    },
+    /// Submitted storage input is invalid before it reaches the database.
+    Invalid {
+        /// What kind of input (e.g. "api key").
+        what: &'static str,
+        /// Why.
+        reason: String,
+    },
     /// Stored or submitted data violated a domain invariant.
     Domain(DomainError),
 }
@@ -26,6 +42,15 @@ impl std::fmt::Display for StorageError {
             Self::Database(e) => write!(f, "database error: {e}"),
             Self::Migration(e) => write!(f, "migration error: {e}"),
             Self::NotFound { what, id } => write!(f, "{what} not found: {id}"),
+            Self::PermissionDenied {
+                tenant,
+                role,
+                scope,
+            } => write!(
+                f,
+                "permission denied: role {role} of tenant {tenant} lacks scope {scope}"
+            ),
+            Self::Invalid { what, reason } => write!(f, "invalid {what}: {reason}"),
             Self::Domain(e) => write!(f, "domain invariant violated: {e}"),
         }
     }
@@ -37,7 +62,8 @@ impl std::error::Error for StorageError {
             Self::Database(e) => Some(e),
             Self::Migration(e) => Some(e),
             Self::Domain(e) => Some(e),
-            Self::NotFound { .. } => None,
+            // No underlying foreign error: these are storage's own verdicts.
+            Self::NotFound { .. } | Self::PermissionDenied { .. } | Self::Invalid { .. } => None,
         }
     }
 }

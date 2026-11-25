@@ -186,6 +186,124 @@ impl std::fmt::Display for OperationState {
     }
 }
 
+/// Lifecycle of one authorization session (login of an account on its
+/// platform).
+///
+/// A session starts when the platform login flow begins (e.g. a QR code is
+/// issued) and becomes [`AuthSessionState::Authorized`] once the platform
+/// confirms credentials. `AWAITING_CONFIRMATION` is the platform-side step
+/// where the user has acted (scanned the code) but the confirmation
+/// callback has not arrived yet. Terminal states keep their record for
+/// audit; a re-login always starts a *new* session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AuthSessionState {
+    /// Login flow started, waiting on the platform/user.
+    Pending,
+    /// The user acted (e.g. scanned the code); the confirmation callback
+    /// has not arrived yet.
+    AwaitingConfirmation,
+    /// Platform confirmed the login; the session holds usable credentials.
+    Authorized,
+    /// Timed out (login not completed in time, or session TTL elapsed).
+    Expired,
+    /// Explicitly revoked by an operator or the platform.
+    Revoked,
+    /// Login flow failed (platform rejected, callback error, ...).
+    Failed,
+}
+
+impl AuthSessionState {
+    /// Allowed transitions from this state.
+    pub const TRANSITIONS: &'static [(&'static AuthSessionState, &'static [AuthSessionState])] = &[
+        (
+            &AuthSessionState::Pending,
+            &[
+                AuthSessionState::AwaitingConfirmation,
+                AuthSessionState::Authorized,
+                AuthSessionState::Expired,
+                AuthSessionState::Revoked,
+                AuthSessionState::Failed,
+            ],
+        ),
+        (
+            &AuthSessionState::AwaitingConfirmation,
+            &[
+                AuthSessionState::Authorized,
+                AuthSessionState::Expired,
+                AuthSessionState::Revoked,
+                AuthSessionState::Failed,
+            ],
+        ),
+        (
+            &AuthSessionState::Authorized,
+            &[AuthSessionState::Expired, AuthSessionState::Revoked],
+        ),
+        (&AuthSessionState::Expired, &[]),
+        (&AuthSessionState::Revoked, &[]),
+        (&AuthSessionState::Failed, &[]),
+    ];
+
+    /// Canonical wire name of the state (REST/MCP expose this string).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "PENDING",
+            Self::AwaitingConfirmation => "AWAITING_CONFIRMATION",
+            Self::Authorized => "AUTHORIZED",
+            Self::Expired => "EXPIRED",
+            Self::Revoked => "REVOKED",
+            Self::Failed => "FAILED",
+        }
+    }
+
+    /// Parses the canonical wire name (case-sensitive).
+    pub fn parse(raw: &str) -> DomainResult<Self> {
+        match raw {
+            "PENDING" => Ok(Self::Pending),
+            "AWAITING_CONFIRMATION" => Ok(Self::AwaitingConfirmation),
+            "AUTHORIZED" => Ok(Self::Authorized),
+            "EXPIRED" => Ok(Self::Expired),
+            "REVOKED" => Ok(Self::Revoked),
+            "FAILED" => Ok(Self::Failed),
+            other => Err(DomainError::InvalidStateName {
+                machine: "auth session",
+                raw: other.to_owned(),
+            }),
+        }
+    }
+
+    /// Whether the state is terminal (no further transitions).
+    pub fn is_terminal(self) -> bool {
+        self.next_states().is_empty()
+    }
+
+    fn next_states(self) -> &'static [AuthSessionState] {
+        Self::TRANSITIONS
+            .iter()
+            .find(|(from, _)| **from == self)
+            .map(|(_, to)| *to)
+            .unwrap_or(&[])
+    }
+
+    /// Applies one transition, enforcing the table.
+    pub fn transition_to(self, next: AuthSessionState) -> DomainResult<AuthSessionState> {
+        if self.next_states().contains(&next) {
+            Ok(next)
+        } else {
+            Err(DomainError::InvalidTransition {
+                machine: "auth session",
+                from: self.as_str(),
+                to: next.as_str(),
+            })
+        }
+    }
+}
+
+impl std::fmt::Display for AuthSessionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,5 +449,80 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn auth_session_happy_path_is_legal() {
+        let mut state = AuthSessionState::Pending;
+        state = state
+            .transition_to(AuthSessionState::AwaitingConfirmation)
+            .unwrap();
+        state = state.transition_to(AuthSessionState::Authorized).unwrap();
+        assert!(!state.is_terminal());
+        state = state.transition_to(AuthSessionState::Expired).unwrap();
+        assert!(state.is_terminal());
+    }
+
+    #[test]
+    fn auth_session_pending_and_confirming_can_fail_or_be_revoked() {
+        for start in [
+            AuthSessionState::Pending,
+            AuthSessionState::AwaitingConfirmation,
+        ] {
+            assert!(start.transition_to(AuthSessionState::Failed).is_ok());
+            assert!(start.transition_to(AuthSessionState::Revoked).is_ok());
+            assert!(start.transition_to(AuthSessionState::Expired).is_ok());
+        }
+        // an authorized session can only expire or be revoked, not "fail"
+        assert!(
+            AuthSessionState::Authorized
+                .transition_to(AuthSessionState::Failed)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn auth_session_terminal_states_have_no_exits() {
+        for terminal in [
+            AuthSessionState::Expired,
+            AuthSessionState::Revoked,
+            AuthSessionState::Failed,
+        ] {
+            assert!(terminal.is_terminal());
+            for next in [
+                AuthSessionState::Pending,
+                AuthSessionState::AwaitingConfirmation,
+                AuthSessionState::Authorized,
+                AuthSessionState::Expired,
+                AuthSessionState::Revoked,
+                AuthSessionState::Failed,
+            ] {
+                assert_eq!(
+                    terminal.transition_to(next),
+                    Err(DomainError::InvalidTransition {
+                        machine: "auth session",
+                        from: terminal.as_str(),
+                        to: next.as_str(),
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn auth_session_wire_names_roundtrip() {
+        for state in [
+            AuthSessionState::Pending,
+            AuthSessionState::AwaitingConfirmation,
+            AuthSessionState::Authorized,
+            AuthSessionState::Expired,
+            AuthSessionState::Revoked,
+            AuthSessionState::Failed,
+        ] {
+            assert_eq!(AuthSessionState::parse(state.as_str()), Ok(state));
+            assert_eq!(state.to_string(), state.as_str());
+        }
+        let err = AuthSessionState::parse("authorized").unwrap_err();
+        assert!(err.to_string().contains("auth session"));
     }
 }

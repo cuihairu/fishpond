@@ -37,6 +37,10 @@ pub struct TenantRecord {
 }
 
 /// Owns the pool and the repository surface.
+///
+/// Cheap to clone (the pool is reference-counted): services hold their
+/// own handle and share one set of connections.
+#[derive(Clone)]
 pub struct Store {
     pub(crate) pool: PgPool,
 }

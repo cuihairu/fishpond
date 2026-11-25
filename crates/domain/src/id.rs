@@ -77,6 +77,9 @@ define_id!(
     /// One stored credential.
     CredentialId => "credential");
 define_id!(
+    /// One authorization session (account login flow).
+    AuthSessionId => "auth session");
+define_id!(
     /// One stream event.
     EventId => "event");
 

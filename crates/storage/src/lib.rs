@@ -14,6 +14,7 @@
 pub mod authz;
 pub mod credentials;
 pub mod error;
+pub mod sessions;
 pub mod store;
 
 pub use authz::{
@@ -25,4 +26,5 @@ pub use credentials::{
     CredentialCipher, CredentialRecord, MasterKey, NewCredential, SealedSecret, SecretBox,
 };
 pub use error::{StorageError, StorageResult};
+pub use sessions::{AuthSessionRecord, AuthSessionUpdate, NewAuthSession};
 pub use store::{Store, TenantRecord};

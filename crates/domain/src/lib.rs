@@ -15,10 +15,10 @@ pub use dto::{
 };
 pub use error::{DomainError, DomainResult, IdInvalidReason};
 pub use id::{
-    AccountId, ApiKeyId, AttemptId, ConversationId, CredentialId, EventId, MAX_ID_LEN, MessageId,
-    OperationId, ProductId, TenantId,
+    AccountId, ApiKeyId, AttemptId, AuthSessionId, ConversationId, CredentialId, EventId,
+    MAX_ID_LEN, MessageId, OperationId, ProductId, TenantId,
 };
-pub use state::{AccountState, OperationState};
+pub use state::{AccountState, AuthSessionState, OperationState};
 
 #[cfg(test)]
 mod tests {

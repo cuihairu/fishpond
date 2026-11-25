@@ -552,6 +552,11 @@ version = "0.1.0"
 [[package]]
 name = "fishpond-server"
 version = "0.1.0"
+dependencies = [
+ "fishpond-domain",
+ "fishpond-storage",
+ "tokio",
+]
 
 [[package]]
 name = "fishpond-storage"

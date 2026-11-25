@@ -183,7 +183,12 @@
     - supervisor 是进程内内存结构（无持久化）：actor 状态/重启计数随进程消亡；持久化恢复（worker 重注册后接管）属 F012 与 F013。
     - stop 的 ActorHandle 只持 shutdown 信号与 task，typed mailbox 在调用方手里——调用方持有旧 sender 即知 actor 已停（Closed）。
   - Commit: 6274052
-- [ ] F011 SessionCoordinator、凭据版本、互斥、人工接管状态转换（依赖 F010）
+- [x] F011 SessionCoordinator、凭据版本、互斥、人工接管状态转换（依赖 F010）
+  - Dependencies: F010 DONE
+  - Implementation files: crates/server/src/coordination.rs（新增：authorize_exclusive/attach/take_over/resume/ensure_automatable/ensure_credential_current/expire_stale，每账号 tokio Mutex 门串行化 check-then-act）；crates/server/src/sessions.rs（take_over/resume/credential_version 三个服务方法）；crates/server/src/error.rs（ReauthRequired{session,pinned,current} 变体）；crates/server/src/lib.rs（导出 SessionCoordinator）；crates/domain/src/state.rs（TakenOver 状态：AUTHORIZED→TAKEN_OVER→{AUTHORIZED,EXPIRED,REVOKED}，PENDING→TAKEN_OVER 非法）；crates/server/Cargo.toml（+fishpond-runtime、tokio sync）；crates/server/tests/f011_coordination.rs（5 个验收测试）
+  - Commands and actual results: `cargo test -p fishpond-server`（lib 3 + f009 3 + f011 5 全绿）；`cargo test --workspace` 带 FISHPOND_TEST_DATABASE_URL 两轮 142 通过 0 失败、不带 DB 142 通过；`cargo clippy --workspace --all-targets -- -D warnings` 默认与 1.88 工具链均零警告；`cargo fmt --all -- --check` 通过；`python3 scripts/check_workspace.py` 15 成员分层合规。语义决定：互斥状态=AWAITING_CONFIRMATION/AUTHORIZED/TAKEN_OVER（PENDING 不互斥，避免陈旧登录堵死重登）；接管停 actor、resume 只恢复授权不复活 actor（调用方重新 attach，非对称已文档化）；resume 不刷新凭据版本钉，轮换后仍 ReauthRequired；EXPIRED 终态不可 resume。附带修复：tenant_isolation.rs 两个并行测试争写全局 tenant_roles 行（owner/viewer 改唯一角色名，3 连跑验证）
+  - Limitations / BLOCKED reasons: authorize 不校验传入版本与库存信封一致（调用方负责传当前代，fresh login 用 credential_version 现读）；expire_stale 按租户全量 list 扫描，量大后需增量游标（记入 F013 scheduler 优化面）
+  - Commit: 7914ea0
 - [ ] F012 Worker 注册、心跳、lease/generation、CAS；T01/T02/T20（依赖 F006,F010）
 - [ ] F013 Scheduler 容量和亲和、drain、故障接管（依赖 F012）
 - [ ] F014 operation/attempt 持久化、claim、deadline、幂等；T03/T04/T07（依赖 F006,F012）

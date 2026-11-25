@@ -167,7 +167,22 @@
     - start 之后的 PENDING 会话无自动过期任务（expires_at 只是钉子）；过期清扫属调度面（F013/F015），本层只提供 live_for_account 判定。
     - 重复注册检查是先读后写（无 DB 唯一约束兜底并发）；并发注册由 F012 的 lease/CAS 面统一处理。
   - Commit: c0055be
-- [ ] F010 AccountSupervisor/Actor、bounded mailbox、取消、重启（依赖 F009）
+- [x] F010 AccountSupervisor/Actor、bounded mailbox、取消、重启 — DONE（2026-11-26 批量令 F009-F012）
+  - Dependencies: F009（DONE）
+  - Implementation files: crates/runtime/{Cargo.toml, src/{lib.rs, actor.rs, mailbox.rs, supervisor.rs}} / Cargo.lock
+    - mailbox.rs：MailboxPair::bounded(capacity)（零容量=1）、split()→(Sender, Receiver)；Sender::try_send（背压立即 Full）与 send（等待容量）双纪律 + occupancy 计数；Receiver::recv/into_inner；MailboxError{Full,Closed}；每个方法 3+ 条单测（拒收/等待/关闭）
+    - actor.rs：ActorBehavior 特质（Message 关联类型 + reset() 每生活重置含首生活 + async handle→Result<(),ActorError>）、ActorError{Failed(可重启),Fatal(绝不重启)}、run_life select 循环（消息/关闭/失败三种出口）、supervise（reset→life→按 RestartPolicy 重启，退避期间仍响应关闭，mailbox 跨重启保留）、ActorOutcome{Stopped,GaveUp(Failed),Fatal}
+    - supervisor.rs：RestartPolicy{max_restarts, backoff, max_backoff}（standard=3 次 10/20/30ms capped 100ms、none=0 次、restart_delay(1-based) 越界 None）、AccountSupervisor：start(按 AccountId 一 actor，重复 start 先停旧再替换、返回 typed MailboxSender)、stop/stop_all/remove（停+去注册）、contains/len/is_empty/restarts/is_finished、join（等终态且摘除注册）
+  - Commands and actual results:
+    - `cargo test -p fishpond-runtime` → **13 条全 ok，连跑 5 轮 rerun 稳定**（actor 单元测试 3 + mailbox 单元测试 3 + supervisor 单元测试 1 + 顶层集成 6：干净停、失败重启+状态归零+邮箱保留、重试耗尽放弃+邮箱关闭、fatal 绝不重启+邮箱关闭、账号隔离与替换/替换即停旧邮箱、幽灵账号零操作）
+    - 关键断言：重启后 actor 第一条消息记录的 per-life 占用是 0（若状态泄漏则为 1），跨崩溃期间排队的消息不丢（poison 后入队的 2 条由新生活处理，log [0,1,0,1]）；重试耗尽（max=2，3 条失败消息）→ GaveUp(failed("always")) 且 restarts==2 只计真实重启；fatal → Fatal 且 restarts==0；重复注册账号时旧邮箱 try_send 立即 Closed；stop 幂等而 unknown 账号不误停
+    - 门禁：`cargo fmt --all -- --check` 通过；`cargo clippy --workspace --all-targets -- -D warnings` 零警告；`cargo test --workspace` 真库 136 passed / 0 failed；`python3 scripts/check_workspace.py` → 15 members, layering rules satisfied；`rustup run 1.88.0` fmt/clippy 全过
+  - Limitations / BLOCKED reasons:
+    - 测试发现竞态并已修正：计数器读取须先于 join（join 摘注册），停止前须先观测到全部消息被处理（stop 只承诺当前消息做完，队列可弃）——这是设计语义不是缺陷，测试按语义写。
+    - restarts() 语义 = 实际发生的重启次数（放弃前那次失败不计入）；fatal 失败不计入重启（语义「绝不重启」）。
+    - supervisor 是进程内内存结构（无持久化）：actor 状态/重启计数随进程消亡；持久化恢复（worker 重注册后接管）属 F012 与 F013。
+    - stop 的 ActorHandle 只持 shutdown 信号与 task，typed mailbox 在调用方手里——调用方持有旧 sender 即知 actor 已停（Closed）。
+  - Commit: 6274052
 - [ ] F011 SessionCoordinator、凭据版本、互斥、人工接管状态转换（依赖 F010）
 - [ ] F012 Worker 注册、心跳、lease/generation、CAS；T01/T02/T20（依赖 F006,F010）
 - [ ] F013 Scheduler 容量和亲和、drain、故障接管（依赖 F012）

@@ -55,6 +55,23 @@
 - [ ] F008 Credential Store 信封加密、轮换、撤销；秘密不进日志测试
   - Dependencies: F006
   - Commit:
+- [x] F009M MCP Server 面：crates/mcp（rmcp 3.11，stdio+streamable-http）、10 工具、API key/scope 鉴权、CLI `fishpond mcp`、快照/往返/鉴权/脱敏测试 — DONE（2026-11-25，用户令「fishpond 需要补上一个 mcp 功能」）
+  - Dependencies: F002（DONE）
+  - Implementation files: Cargo.toml（members +crates/mcp）/ Cargo.lock / crates/mcp/Cargo.toml / crates/mcp/src/{lib,auth,redact,services,mock,tools,server,cli}.rs / crates/mcp/tests/{common/mod.rs,tools_snapshot.rs,tools_roundtrip.rs,auth_isolation.rs,idempotency.rs,secret_redaction.rs} / crates/mcp/tests/snapshot/tools_list.json（golden 快照）/ crates/cli/{Cargo.toml,src/main.rs}（二进制命名 fishpond + `mcp` 子命令分派）/ docs/adr/0002-mcp.md / README.md（MCP 接入节）/ scripts/check_workspace.py（+fishpond-mcp 成员与内部依赖白名单）
+  - Commands and actual results:
+    - `python3 scripts/check_workspace.py` → `workspace structure ok: 15 members, layering rules satisfied`
+    - `cargo fmt --all -- --check` → OK（0 diff；另在 CI 基线 rustc 1.88.0 下复核同样 0 diff）
+    - `cargo clippy --workspace --all-targets -- -D warnings` → 零警告；**另在 rustc/clippy 1.88.0 下复跑同样零警告**（CI 首轮在 1.88 上命中 `uninlined_format_args`，已在 eba0944 修掉）
+    - `cargo test --workspace` → 39 个 target 全 `test result: ok`；fishpond-mcp 单独：lib 12 + auth_isolation 6 + idempotency 1 + secret_redaction 1 + tools_roundtrip 10 + tools_snapshot 2 = 32 条
+    - 端到端冒烟（真进程，非测试替身）：`fishpond mcp` stdio 下 initialize→tools/call `list_accounts` 返回 3 条 t-default 账号；`get_account acc-102` 返回 `UNKNOWN` + stateNote；`--transport http` 起 `POST /mcp`，`x-fishpond-api-key` 与 `Authorization: Bearer` 两种头都通过，缺头返回 `-32600 unauthenticated`，跨租户 key 只见 t-other 数据
+    - 远端 CI（run 45523507628，headSha eba0944）：`structure (§3.2 members / §3.3 layering)` success；`rust (ubuntu-latest, 1.88)` success；`rust (macos-latest, 1.88)` success；`rust (windows-latest, 1.88)` success；`node (lint/test/build)` failure
+    - node job 的 failure 与本单无关且先前已存在：dependabot 合并提交 dfffb51 的 CI（run 45508619587）同样失败，同一错误 `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`——vitest 3.2.7→4.1.11 拉入 `tinyexec@1.4.0`（发布于 2026-11-24T22:03:38Z），落在 pnpm 12 默认最小发布龄策略窗口内。本单未改动任何 Node 文件。
+  - Limitations / BLOCKED reasons:
+    - `node (lint/test/build)` 在 headSha eba0944 上仍为 failure，原因为上述既有依赖策略冲突（pnpm 12 默认 minimumReleaseAge 拒绝 24h 内发布的 tinyexec@1.4.0），与本单改动无关，预计 2026-11-25T22:03Z 后自愈；处理它属于依赖策略决策（回退 dependabot 升级 / 显式放宽策略），未擅自改动。
+    - M0 范围限制：`subscribe_events` 只返回事件快照，live 推送随 F017 落地后桥接为 MCP notification；`send_message` 只走 Mock provider（F032 BLOCKED 不受影响）；未实现 browser/Profile 工具（F021/F022 未落地）。
+    - M0 鉴权用 `ApiKeyStore` 内存种子（CLI 从 `FISHPOND_API_KEY`/`FISHPOND_TENANT_ID`/`FISHPOND_SCOPES` bootstrap，默认租户 t-default），F007/F025 落地后替换为持久化 key store，`AuthContext` 形状保持不变。
+    - 结构规则：`fishpond-mcp` 只允许内部依赖 domain/storage/server，禁止 worker/browser/provider 实现，已由 `scripts/check_workspace.py` 钉住（CI structure job 覆盖）。
+  - Commit: 9597d49（mcp facade crate + 测试 + ADR-0002 + README + 结构规则）；eba0944（1.88 clippy 修复）
 
 ## M1（F009–F020）：账号/调度/可靠任务与事件
 

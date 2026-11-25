@@ -109,9 +109,26 @@
     - messages 无 tenant 字段的写入仍由调用方显式给 tenant（沿 F006 决策）；跨租户写测试证明即使调用方谎报 tenant_id，WITH CHECK 也会拒绝。
     - 角色种子是迁移内固定词汇；运行时改角色 scope 只影响新发 key（冻结语义），不追溯。
   - Commit: 580fe97
-- [ ] F008 Credential Store 信封加密、轮换、撤销；秘密不进日志测试
-  - Dependencies: F006
-  - Commit:
+- [x] F008 Credential Store 信封加密、轮换、撤销；秘密不进日志测试 — DONE（2026-11-25 批量令 F003-F008）
+  - Dependencies: F006（DONE）
+  - Implementation files: crates/storage/migrations/0003_credentials.sql / crates/storage/src/{credentials.rs, error.rs, lib.rs, store.rs} / crates/storage/Cargo.toml（+aes-gcm 0.10、zeroize 1）/ crates/storage/tests/{credential_store.rs, common/mod.rs} / Cargo.lock
+    - 迁移 0003：master_keys（全局 KEK 代际表，无 RLS，与 api_keys 同理——代际元数据在知道租户前就需要）；credentials（租户所有，tenant FK + 信封列 secret_nonce/secret_cipher/dek_nonce/wrapped_dek BYTEA + kek_version + fingerprint + created_at/revoked/revoked_at），ENABLE + FORCE RLS，`USING (tenant_id = current_setting('app.tenant', true)) WITH CHECK (…)`
+    - 信封加密：每条凭证随机 AES-256-GCM DEK 加密秘密（per-credential DEK），DEK 再被 MasterKey(KEK) 包装；MasterKey 材料从不落库（env 挂载，`MasterKey::from_env`），KEK 轮换 = 只重包 DEK、data_cipher 不动；轮换/重加密只动密文包，明文 DEK 永不出现在同一处
+    - MasterKey/SealedSecret/SecretBox 自定义 Debug 只渲染 fingerprint 或字节长度；SecretBox 用 Zeroizing 持有明文，fingerprint = SHA-256 前 4 字节 8 hex
+    - CredentialCipher::new/kek_version/seal/open/rewrap（rewrap = 换代际重包 DEK，data 密文不变；目标代际密钥打不开源 DEK → Invalid，不回显明文）；hex_decode 严格（奇数长度拒绝，非 hex 字符拒绝），错误变体 Invalid{what, reason}
+    - Store 持久化面：register_master_key（幂等）/list_master_keys/store_credential/load_credential（NotFound 或 revoked → PermissionDenied 不泄漏内容）/replace_credential_envelope（rows_affected==1 才 true；NOT is_revoked）/revoke_credential（一次有效，二次 false，幂等）/list_credentials/retire_master_key（幂等 bool）；credentials 全部走 begin_tenant 绑定事务（同 F007），raw pool 对 credentials 零可见
+  - Commands and actual results:
+    - 真库验证（本机 Postgres 18.6，非超级用户 fishpond_test——超级用户绕过 RLS）：`FISHPOND_TEST_DATABASE_URL=postgres://fishpond_test:fishpond_test@127.0.0.1:5432/fishpond_test cargo test -p fishpond-storage` → **27 条全 ok（10 单元 + 5 F008 验收 + 7 F006 回归 + 5 F007 回归），连跑三轮 rerun 稳定**
+    - F008 验收逐条：生命周期（登记 v1/v2 代际幂等 → 发签 → 加载开密 → rewrap 只换 wrapped_dek 保 data_cipher 不变 → 换代际后旧 KEK 打不开 → 换秘密重加密 → 撤销一次有效二次 false → 撤销后 load 一律 PermissionDenied 且记录只见 fingerprint、秘密永不进记录）；RLS 跨租户（A 发签的凭证 B 加载 NotFound、replace/revoke 均 rows_affected=0、list 各自隔离、未绑定 pool 读零行、B 伪造信封写不进 A 的行且 A 数据完好）；撤销后全处拒绝开密（unknown → NotFound；撤销后任意 KEK 都拿不到包）；空白 id 发签 → Invalid
+    - 秘密不进日志：TRACE 级 tracing 捕获（SharedBuf + MakeWriter）覆盖整轮生命周期 + 错误路径，原始秘密（SECRET 与 expose() 内容）均不出现，错误文本也不回显，fingerprint 出现作为日志关联手段
+    - 无 DB 降级（CI）：不设环境变量时 10 条单元测试与 1 条日志捕获测试照常通过（真库测试走 skip 分支），符合 §7.3 Mock 是唯一 CI 目标
+    - 门禁：`cargo fmt --all --check` 通过；`cargo clippy --workspace --all-targets -- -D warnings` 零警告；`cargo test --workspace` 全绿（CI 无 DB 路径 28 个 suite 全 ok；真库路径 112 passed / 0 failed）；`python3 scripts/check_workspace.py` → workspace structure ok: 15 members, layering rules satisfied；CI 工具链对拍 `rustup run 1.88.0` fmt/clippy 全过
+  - Limitations / BLOCKED reasons:
+    - rerun 稳定依赖 unique_version()：master_keys.version 是全局整数主键且信封记录 kek_version，测试库不清理，故每轮用 pid 子域 + 子秒微秒派生唯一代际；最初硬编码版本 1/2 被第二轮测试抓出（第一轮已 retire，第二轮幂等返回 false——幂等本身是设计行为，修正为每轮唯一版本）。
+    - 未实现 master_keys 行级加密：代际元数据（version/时间戳/is_retired）非秘密，且 KEK 材料本就不落库（env 挂载），行级加密只增复杂度不增密性。
+    - KEK 轮换只重包 DEK，不做「旧代际自动停用」——retire 是显式登记动作，已 retired 代际下未 rewrap 的凭证仍可开（load 按 kek_version 解析，不强制升级）；调用方按需 rewrap，存储层不代做。
+    - CredentialCipher 只认单代际；多代际共存（部分凭证仍在旧代际）由调用方按需 rewrap，存储层不代做。
+  - Commit: b514996
 - [x] F009M MCP Server 面：crates/mcp（rmcp 3.11，stdio+streamable-http）、10 工具、API key/scope 鉴权、CLI `fishpond mcp`、快照/往返/鉴权/脱敏测试 — DONE（2026-11-25，用户令「fishpond 需要补上一个 mcp 功能」）
   - Dependencies: F002（DONE）
   - Implementation files: Cargo.toml（members +crates/mcp）/ Cargo.lock / crates/mcp/Cargo.toml / crates/mcp/src/{lib,auth,redact,services,mock,tools,server,cli}.rs / crates/mcp/tests/{common/mod.rs,tools_snapshot.rs,tools_roundtrip.rs,auth_isolation.rs,idempotency.rs,secret_redaction.rs} / crates/mcp/tests/snapshot/tools_list.json（golden 快照）/ crates/cli/{Cargo.toml,src/main.rs}（二进制命名 fishpond + `mcp` 子命令分派）/ docs/adr/0002-mcp.md / README.md（MCP 接入节）/ scripts/check_workspace.py（+fishpond-mcp 成员与内部依赖白名单）

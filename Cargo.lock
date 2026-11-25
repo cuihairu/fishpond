@@ -544,6 +544,10 @@ version = "0.1.0"
 [[package]]
 name = "fishpond-runtime"
 version = "0.1.0"
+dependencies = [
+ "fishpond-domain",
+ "tokio",
+]
 
 [[package]]
 name = "fishpond-scheduler"

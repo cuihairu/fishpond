@@ -8,3 +8,10 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+fishpond-domain = { path = "../domain" }
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }

@@ -104,13 +104,37 @@ async fn api_keys_freeze_role_scopes_and_enforce_permissions() {
     let owner_key = format!("fpk-{}", unique_token("owner"));
     let viewer_key = format!("fpk-{}", unique_token("viewer"));
 
+    // Unique role names: `tenant_roles` rows are global (keyed by name
+    // only) and this test runs in parallel with the seed-vocabulary
+    // test, which patches the canonical rows — unique names keep the
+    // two writers apart.
+    let owner_role = format!("owner-{}", unique_token("r"));
+    let viewer_role = format!("viewer-{}", unique_token("r"));
+    store
+        .upsert_role(&owner_role, &SCOPE_ALL)
+        .await
+        .expect("seed owner role");
+    store
+        .upsert_role(
+            &viewer_role,
+            &[
+                SCOPE_ACCOUNTS_READ,
+                SCOPE_CONVERSATIONS_READ,
+                SCOPE_CATALOG_READ,
+                SCOPE_OPERATIONS_READ,
+                SCOPE_EVENTS_READ,
+            ],
+        )
+        .await
+        .expect("seed viewer role");
+
     let issued = store
-        .issue_api_key(&owner_key, &tenant, "owner", ts(0), ts(20))
+        .issue_api_key(&owner_key, &tenant, &owner_role, ts(0), ts(20))
         .await
         .expect("issue owner key");
     assert_eq!(issued.key_hash, hash_api_key(&owner_key));
     assert_eq!(issued.tenant_id, tenant);
-    assert_eq!(issued.role, "owner");
+    assert_eq!(issued.role, owner_role);
     assert_eq!(issued.scopes, SCOPE_ALL);
     assert!(!issued.is_revoked);
     assert_eq!(issued.key_hint.len(), 4);
@@ -118,7 +142,7 @@ async fn api_keys_freeze_role_scopes_and_enforce_permissions() {
     assert!(!format!("{issued:?}").contains(&owner_key));
 
     store
-        .issue_api_key(&viewer_key, &tenant, "viewer", ts(0), ts(20))
+        .issue_api_key(&viewer_key, &tenant, &viewer_role, ts(0), ts(20))
         .await
         .expect("issue viewer key");
 
@@ -131,7 +155,7 @@ async fn api_keys_freeze_role_scopes_and_enforce_permissions() {
         panic!("issued owner key must resolve")
     };
     assert_eq!(resolved.tenant_id, tenant);
-    assert_eq!(resolved.role, "owner");
+    assert_eq!(resolved.role, owner_role);
     assert!(resolved.has_scope(SCOPE_ACCOUNTS_READ));
 
     // The viewer may read but not write: the store enforces the scope.
@@ -155,7 +179,7 @@ async fn api_keys_freeze_role_scopes_and_enforce_permissions() {
         panic!("expected PermissionDenied, got {denied_text}")
     };
     assert_eq!(denied_tenant, tenant.as_str());
-    assert_eq!(role, "viewer");
+    assert_eq!(role, viewer_role);
     assert_eq!(scope, SCOPE_CONVERSATIONS_WRITE);
     // Neither the error nor any record echoes the raw key material.
     assert!(!denied_text.contains(&viewer_key));
@@ -173,7 +197,7 @@ async fn api_keys_freeze_role_scopes_and_enforce_permissions() {
     // Frozen at issue time: widening the role never widens a live key.
     store
         .upsert_role(
-            "viewer",
+            &viewer_role,
             &[
                 SCOPE_ACCOUNTS_READ,
                 SCOPE_CONVERSATIONS_READ,
@@ -194,10 +218,10 @@ async fn api_keys_freeze_role_scopes_and_enforce_permissions() {
         !widened.has_scope(SCOPE_CONVERSATIONS_WRITE),
         "scopes are frozen at issue time"
     );
-    // Restore the seeded scope set for later runs.
+    // Restore the scope set for later runs.
     store
         .upsert_role(
-            "viewer",
+            &viewer_role,
             &[
                 SCOPE_ACCOUNTS_READ,
                 SCOPE_CONVERSATIONS_READ,

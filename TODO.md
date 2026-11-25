@@ -37,11 +37,16 @@
     - 本单不带 cargo-wix/msi 发布，也未建 compose/`proto/`/`deploy/`（属 F020/F029 范围）。
     - README「仓库结构」摘要仍写 `browser/`、`web/`，与本次 §3.2 实际布局（packages/console、packages/browser-worker）不一致；因需以会话文档 §3.2 原文为准，留待确认后再改。
   - Commit: 9ae76be（Rust workspace）/ 90c6348（Node workspace）/ 8b0fbc0（CI workflow）
-- [ ] F003 domain DTO、强类型 ID、错误及状态转换；非法转换单元测试
-  - Dependencies: F002
-  - Commit:
-- [ ] F004 provider-sdk、manifest、结果语义、版本协商；mock 契约测试
-  - Dependencies: F003
+- [x] F003 domain DTO、强类型 ID、错误及状态转换；非法转换单元测试 — DONE（2026-11-25）
+  - Dependencies: F002（DONE）
+  - Implementation files: crates/domain/src/{lib.rs, id.rs, error.rs, state.rs, dto.rs}（std-only：10 个强类型 ID 新类型 + 校验、AccountState/OperationState 转换表、DomainError、DTO 与不变量——UNKNOWN 必须带 note、确认态禁 note、消息文本非空、价格非负、attempt 序号从 1 起、事件 payload 必须是 JSON 对象、UnixMillis 拒绝负值）
+  - Commands and actual results:
+    - `cargo test -p fishpond-domain` → 26 单元 + 1 no_external_deps = 27 全 ok（非法转换：DISABLED 无出口×4、同态自转非法、PENDING 不能直接 SUCCEEDED/FAILED、终态×5 全拒绝；ID 校验：空/超长/坏字符/非 ASCII）
+    - `cargo clippy -p fishpond-domain --all-targets -- -D warnings` → 零警告；`cargo fmt --all` 已过
+  - Limitations / BLOCKED reasons: domain 保持零依赖（serde/时间库禁入），wire 层（REST/MCP）自行映射；DTO 与 F009M 的 MCP wire DTO 并存，整合属 F025。
+  - Commit: fd498bf
+- [ ] F004 provider-sdk、manifest、结果语义、版本协商；mock 契约测试 — IN_PROGRESS（2026-11-25 批量令 F003-F008）
+  - Dependencies: F003（DONE）
   - Commit:
 - [ ] F005 Mock Platform 与 Mock Provider（授权/写入/断连/重复事件故障开关）
   - Dependencies: F004

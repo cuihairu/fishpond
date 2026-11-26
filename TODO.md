@@ -648,7 +648,7 @@
 ## M4（F039–F041）：稳定性和发布
 
 - [ ] F039 72h 模拟稳定性、故障注入、备份恢复、容量报告（依赖 F031,F037）
-- [ ] F040 完整账号删除、凭据撤销、数据保留与审计；T18/T21（依赖 F007,F008,F022,F035）— IN_PROGRESS（2026-11-27）
+- [x] F040 完整账号删除、凭据撤销、数据保留与审计；T18/T21（依赖 F007,F008,F022,F035）— DONE（2026-11-27）
   - Dependencies: F007,F008,F022,F035（均 DONE）
   - Implementation files: crates/storage/migrations/0014_account_delete.sql, crates/storage/src/{store.rs,retention.rs,lib.rs}, crates/storage/tests/f040_account_lifecycle.rs（增量 A）; crates/server/src/{accounts.rs,http/accounts.rs,http/mod.rs,http/openapi.rs}, crates/server/tests/{f009_services.rs,f025_http_routes.rs,fixtures/openapi.json}, packages/sdk/src/client.ts+tests, sdk/{python,go}+scripts/test_generate_sdk.py（增量 B）; crates/storage/src/credentials.rs, crates/server/src/{credentials.rs,lib.rs,http/{mod.rs,sessions.rs,openapi.rs}}（增量 C）; crates/storage/src/retention.rs(dry-run+枚举), crates/cli/src/{purge.rs,lib.rs,main.rs}+Cargo.toml, crates/cli/tests/purge.rs（增量 D）
   - Commands and actual results:
@@ -659,8 +659,13 @@
     - 增量 C 要点：storage revoke_credential_with_sessions 单事务（凭据 is_revoked+revoked_at + 携带它的 AUTHORIZED 会话批量 REVOKED[note "credential revoked"]）；幂等重放报 revoked:false+原始时刻；server Credentials 服务 + POST /credentials/{id}/revoke（sessions:write）→ openapi revokeCredential → fixture/SDK 重生成；authorize 时已拒已撤销凭据（既有语义）
     - 增量 D 要点：`fishpond purge`（--tenant 可重复 | --all、必填 --before、--dry-run 回滚式预演、--database-url）；dry_run_purge=同 sweep 语句 rollback 报告精确将删数；--all 空可见租户 → exit 1 fail-closed（RLS 受限角色必须显式 --tenant）；visible_tenant_ids 裸池枚举；二进制实测：无选择器 exit 2、--all 受限角色 exit 1 fail-closed、缺 --before exit 2、render 无任何 url/凭据
     - 关键发现：测试库对几乎全部租户表（含 operations/webhook_deliveries/auth_sessions/account_observations）已启用 FORCE RLS，裸池/psql 全部 fail-closed 看不见行——purge 必须按租户 begin_tenant（已如此实现），测试的直改 SQL 也必须绑租户
-  - Limitations / 剩余: 增量 E（DONE 行）未做；purge 的全租户枚举留给 CLI 运维连接（F037 按租户调度）；browser-worker vitest 存在既有 teardown 竞态 flake（Playwright page closed unhandled rejection，测试本身全过，与本任务无关）
-  - Commit: 83e52fd（增量 A）, 43a3139（chore gitignore）, 1f734e6（增量 B）, 6df8bce（增量 C）, （增量 D 本次提交）
+  - Limitations:
+    - 事件日志（events 表）是审计底账，任何 sweep 都不清扫——它的保留是独立决策（T18 只覆盖终态运营行）
+    - purge 按租户在 begin_tenant 内执行；--all 的全租户枚举依赖连接角色可见 tenants（RLS 受限角色 fail-closed，必须 --tenant 显式列出；CI 测试库即此形态）
+    - 凭据撤销的域机无 re-auth 态：携带会话直接终局 REVOKED（note "credential revoked"），Fresh 登录由 authorize 既有语义拒绝；既有 revoke_credential 原样保留，新方法并存
+    - delete_account 不删除观测史（0014 已放开 FK，观测史=人工审计）；account.deleted 事件=机器审计标记
+    - browser-worker vitest 存在既有 teardown 竞态 flake（Playwright page closed unhandled rejection；测试本身全过，与本任务无关）
+  - Commit: 83e52fd（A：级联删除+保留清扫）, 43a3139（chore gitignore）, 1f734e6（B：REST DELETE+SDK）, 6df8bce（C：凭据撤销+SDK）, b14dc12（D：CLI purge）
 - [ ] F041 发布 RC：SBOM、许可证、漏洞、性能、能力矩阵、回滚文档（依赖 F039,F040）
 
 ## M5（F042–F044）：扩展

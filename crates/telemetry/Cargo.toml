@@ -15,6 +15,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 
 [dev-dependencies]
+fishpond-events = { path = "../events" }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
 [lints]

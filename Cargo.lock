@@ -519,6 +519,7 @@ version = "0.1.0"
 dependencies = [
  "fishpond-domain",
  "fishpond-mcp",
+ "fishpond-scheduler",
  "fishpond-storage",
  "tokio",
 ]

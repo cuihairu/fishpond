@@ -5,3 +5,4 @@
 pub mod doctor;
 pub mod migrate;
 pub mod purge;
+pub mod soak;

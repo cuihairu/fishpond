@@ -559,7 +559,26 @@
     - hex 串掩码按 ≥32 位启发式，短密钥（<32 hex）只能靠 with_redaction 已知密钥层；base64 形状未扫（误报率高，先不做）
     - 队列深度只覆盖持久队列 + supervisor mailbox 采样；worker 侧 in-memory 队列深度未接（worker 接线归后续）
   - Commit: 88a9957
-- [ ] F031 security/integration/chaos 测试和 1,000 Mock 会话初测（依赖 F026,F029,F030）
+- [x] F031 security/integration/chaos 测试和 1,000 Mock 会话初测（依赖 F026,F029,F030）
+  - Dependencies: F026, F029, F030（全部 DONE）
+  - Implementation files:
+    - crates/telemetry/tests/f031_integration.rs（管道端到端：claim→close→事件→消费→深度观测；TimedOut 重开重试；gap 注入保 checkpoint、重放、重复认证跳过；双 claim 竞争恰一胜者败者 Conflict）
+    - crates/telemetry/tests/f031_security.rs（渲染面不泄密（已知密钥+形状扫描）；webhook 签名防篡改矩阵；深度探针对外租户 fail-closed；并发 IncidentLog::open 恰一行）
+    - crates/telemetry/tests/common/mod.rs（套间共享 fixture：唯一 token/租户、DB 门控、真实时钟）
+    - crates/runtime/tests/f031_sessions.rs（会话面 1,000 actor：全部投递恰一次、零重启；毒消息风暴 20 个 fatal 会话永不重启、健康会话零丢失）
+    - crates/worker/tests/f031_sessions.rs（引擎面 1,000 并发 Mock 发送全成功零熔断；browser 通道 50 并发踩踏在 pending 上限处分流——冻结分区后 2 在飞+2 排队放行、46 拒绝、门排空）
+  - Commands and actual results:
+    - `cargo fmt --check` → 通过
+    - `cargo clippy --workspace --all-targets -- -D warnings` → 零警告（1.88 与默认两套工具链均过）
+    - `FISHPOND_TEST_DATABASE_URL=… cargo test --workspace` → 82 套全绿、359 通过、0 失败（DB 门控用例本机全跑）
+    - `cargo test -p fishpond-worker --test f031_sessions` ×5 → 稳定 2 通过（踩踏分流无抖动）
+    - 过程记录：踩踏测试首版因 browser 闭包瞬时完成+许可随生成回收，出现「6 放行/43 拒绝/1 孤独等待者超时」的时序竞争；改为冻结分区（arrived==50 ∧ waiting==2 ∧ pending==2 才放行 watch 闩）后 5 连跑零抖动
+  - Limitations:
+    - 初测只做负载与混沌正确性：无 72h 浸泡、无性能剖析、无容量基线（那些归 F039）
+    - 1,000 会话压的是 supervisor mailbox 与 engine 门控面，Mock Provider 在环但非真实上游协议
+    - worker 侧 in-memory 队列深度仍未接遥测（同 F030 限制，接线归后续任务）
+    - CI 无数据库时 f031_integration/f031_security 的 DB 用例按门控跳过（纯测试面不受影响）
+  - Commit: 88a9957, 1163249, 475fd0c, d07715e, cb6cb05
 
 ## M3（F032–F038）：真实授权能力逐项验收、Console、SDK、多节点
 

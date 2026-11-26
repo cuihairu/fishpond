@@ -5,12 +5,14 @@
 //! [`Registration`] (T01: register, heartbeat, liveness detection) and
 //! [`LeaseManager`] (T02: acquire/renew/release; T20: steal and
 //! generation fencing). They are stateless — the `Store` owns the pool
-//! — so they are cheap to clone and to share. Daemon-side loops
-//! (heartbeat intervals, renew scheduling, steal-back policy) are
-//! scheduler work (F013), not part of these surfaces.
+//! — so they are cheap to clone and to share. The daemon-side loops
+//! live in [`KeepAlive`] (F013: heartbeat + lease renewal on an
+//! interval, with the one-shot steal-back policy).
 
+mod keepalive;
 mod lease;
 mod registration;
 
+pub use keepalive::{KeepAlive, KeepAliveConfig, RenewOutcome, TickReport};
 pub use lease::LeaseManager;
 pub use registration::Registration;

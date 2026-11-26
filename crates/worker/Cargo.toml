@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 fishpond-domain = { path = "../domain" }
 fishpond-storage = { path = "../storage" }
+tokio = { version = "1", features = ["rt", "time"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt", "time", "test-util"] }

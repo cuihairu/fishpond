@@ -17,6 +17,7 @@ pub mod openapi;
 pub mod operations;
 pub mod problem;
 pub mod sessions;
+pub mod takeover;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -38,6 +39,8 @@ pub struct AppState {
     pub accounts: crate::Accounts,
     /// Authorization-session service.
     pub sessions: crate::Sessions,
+    /// Manual takeover service (F034 short-lived operator grants).
+    pub takeover: crate::TakeoverService,
     /// Direct store handle (event-log routes read storage directly).
     pub store: Store,
 }
@@ -45,10 +48,16 @@ pub struct AppState {
 impl AppState {
     /// Builds the state over one connected store.
     pub fn new(store: Store, keys: RestKeys) -> Self {
+        let sessions = crate::Sessions::new(store.clone());
+        let takeover = crate::TakeoverService::new(
+            store.clone(),
+            crate::SessionCoordinator::new(sessions.clone()),
+        );
         AppState {
             keys,
             accounts: crate::Accounts::new(store.clone()),
-            sessions: crate::Sessions::new(store.clone()),
+            sessions,
+            takeover,
             store,
         }
     }
@@ -87,6 +96,15 @@ pub fn build_router(state: AppState) -> Router {
         .route("/sessions", get(sessions::list).post(sessions::start))
         .route("/sessions/{id}", get(sessions::get))
         .route("/sessions/{id}/transition", post(sessions::transition))
+        .route(
+            "/sessions/{id}/takeover",
+            post(takeover::issue).get(takeover::list),
+        )
+        .route(
+            "/sessions/{id}/takeover/{grant_id}",
+            axum::routing::delete(takeover::release),
+        )
+        .route("/takeover/verify", post(takeover::verify))
         .route("/events", get(events::list))
         .route("/events/stream", get(events::stream))
         .route(

@@ -206,6 +206,87 @@ pub fn document() -> serde_json::Value {
                     }
                 }
             },
+            "/sessions/{id}/takeover": {
+                "post": {
+                    "operationId": "startTakeover",
+                    "summary": "Take the session over and mint the operator credential (the raw token appears exactly once)",
+                    "security": [{ "bearerAuth": [] }],
+                    "parameters": [path_param],
+                    "requestBody": { "required": true, "content": {
+                        "application/json": { "schema": { "type": "object", "required": ["operator"], "properties": {
+                            "operator": { "type": "string", "description": "Who the credential is for (audit display)" },
+                            "ttl_ms": { "type": "integer", "description": "Requested life in ms; defaults to the service cap" }
+                        } } }
+                    } },
+                    "responses": {
+                        "201": { "description": "The minted credential", "content": {
+                            "application/json": { "schema": { "type": "object", "required": ["grant_id", "token", "expires_at"], "properties": {
+                                "grant_id": { "type": "string" },
+                                "token": { "type": "string", "description": "Raw token; store it now — the server only holds a hash" },
+                                "expires_at": { "type": "integer", "format": "int64" }
+                            } } }
+                        } },
+                        "403": scope_denied,
+                        "404": not_found,
+                        "409": conflict,
+                        "422": invalid
+                    }
+                },
+                "get": {
+                    "operationId": "listTakeoverGrants",
+                    "summary": "The session's takeover grant audit list (hashes and hints, never raw tokens)",
+                    "security": [{ "bearerAuth": [] }],
+                    "parameters": [path_param],
+                    "responses": {
+                        "200": { "description": "The grants", "content": {
+                            "application/json": { "schema": { "type": "object", "required": ["grants"], "properties": {
+                                "grants": { "type": "array", "items": { "type": "object" } }
+                            } } }
+                        } },
+                        "403": scope_denied,
+                        "404": not_found
+                    }
+                }
+            },
+            "/sessions/{id}/takeover/{grant_id}": {
+                "delete": {
+                    "operationId": "releaseTakeover",
+                    "summary": "Release the takeover: the credential dies and automation resumes",
+                    "security": [{ "bearerAuth": [] }],
+                    "parameters": [path_param,
+                        { "name": "grant_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+                    "responses": {
+                        "200": { "description": "Released", "content": {
+                            "application/json": { "schema": { "type": "object", "required": ["released"], "properties": {
+                                "released": { "type": "boolean" }
+                            } } }
+                        } },
+                        "403": scope_denied,
+                        "404": not_found
+                    }
+                }
+            },
+            "/takeover/verify": {
+                "post": {
+                    "operationId": "verifyTakeover",
+                    "summary": "Verify an operator takeover token by possession (X-Takeover-Token header; no bearer key)",
+                    "parameters": [],
+                    "responses": {
+                        "200": { "description": "What the token proves", "content": {
+                            "application/json": { "schema": { "type": "object", "required": ["grant_id", "tenant", "account", "session", "operator", "expires_at"], "properties": {
+                                "grant_id": { "type": "string" },
+                                "tenant": { "type": "string" },
+                                "account": { "type": "string" },
+                                "session": { "type": "string" },
+                                "operator": { "type": "string" },
+                                "expires_at": { "type": "integer", "format": "int64" }
+                            } } }
+                        } },
+                        "401": unauthorized,
+                        "404": not_found
+                    }
+                }
+            },
             "/events": {
                 "get": {
                     "operationId": "listEvents",

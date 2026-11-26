@@ -108,7 +108,7 @@ pub struct TransitionSession {
     pub expires_at: Option<i64>,
 }
 
-fn parse_session_id(raw: &str) -> Result<AuthSessionId, Problem> {
+pub(super) fn parse_session_id(raw: &str) -> Result<AuthSessionId, Problem> {
     AuthSessionId::parse(raw.to_owned()).map_err(|err| {
         Problem::new(
             "invalid",

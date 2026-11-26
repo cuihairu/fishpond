@@ -8,6 +8,8 @@
 //! (the auth-time path, no tenant key involved). Release revokes the
 //! grant and hands the session back to automation (AUTHORIZED).
 
+use std::sync::Arc;
+
 use fishpond_domain::{AccountId, AuthSessionId, TenantId, UnixMillis};
 use fishpond_storage::{NewTakeoverGrant, Store, generate_takeover_token, hash_takeover_token};
 
@@ -38,9 +40,12 @@ pub struct TakeoverContext {
 }
 
 /// Issues, verifies, and releases operator takeover credentials.
+/// Clones share one coordinator — the per-account serialization gates
+/// stay process-wide by construction.
+#[derive(Clone)]
 pub struct TakeoverService {
     store: Store,
-    coordinator: SessionCoordinator,
+    coordinator: Arc<SessionCoordinator>,
     max_ttl_ms: i64,
 }
 
@@ -50,7 +55,7 @@ impl TakeoverService {
     pub fn new(store: Store, coordinator: SessionCoordinator) -> Self {
         Self {
             store,
-            coordinator,
+            coordinator: Arc::new(coordinator),
             max_ttl_ms: MAX_TTL_MS,
         }
     }

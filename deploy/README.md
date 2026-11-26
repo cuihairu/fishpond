@@ -68,3 +68,33 @@ the image (the engine-face task); today the binary is a stub, so the
 worker services exit right after start. The same credential rules as
 the base stack apply: secrets are compose file-secrets, never
 environment variables, never logs.
+
+## Backup and restore verification (F039)
+
+`backup.sh` produces a consistent, compressed, custom-format
+`pg_dump` (`fishpond-<utc-stamp>.dump`) and proves it parses before
+calling it a backup. `restore-verify.sh` closes the loop: it restores
+a dump into a scratch database (objects re-owned by the app role via
+`--role`), runs the read-only `fishpond doctor` against the scratch
+url, and drops the scratch database unless `--keep`. Both resolve the
+url like every fishpond command (`--database-url`, then
+`FISHPOND_DATABASE_URL`, then the secret file named by
+`FISHPOND_DATABASE_URL_FILE`) and never echo the url — errors name
+the source, not the value.
+
+**The dump role must bypass row-level security.** The migrations set
+`FORCE ROW LEVEL SECURITY` on every tenant table, which bars even the
+table owner from reading rows — so the app role cannot `pg_dump` its
+own database (it fails on the first tenant table). Dump and
+restore-verify therefore connect as a role that bypasses RLS
+(superuser in the compose stack; locally: `sudo -u postgres` over the
+unix socket). Objects are restored with `--no-owner --role=<app
+role>`, so the app role owns them again in the scratch database and
+the restored policies make sense.
+
+Drilled locally (2026-11-27): backup of the test database
+(936 KB custom dump) → restore into a scratch database → doctor
+healthy (reachable, schema current) → scratch dropped. In compose, run
+both scripts inside the `postgres` service (or a sidecar with the
+same socket access), pointing `FISHPOND_DATABASE_URL` at the
+superuser url.

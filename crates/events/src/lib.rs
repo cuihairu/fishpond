@@ -27,10 +27,12 @@
 
 mod sign;
 mod ssrf;
+mod stream;
 mod webhooks;
 
 pub use sign::{SIGNATURE_HEADER, VerifyError, signature_header, verify_header};
 pub use ssrf::{EndpointError, validate_endpoint};
+pub use stream::{SseStreams, StreamError, StreamPage, StreamPolicy, StreamSession};
 pub use webhooks::{
     DeliveryReport, MAX_ATTEMPTS, TransportOutcome, WebhookService, WebhookTransport,
     retry_delay_ms,

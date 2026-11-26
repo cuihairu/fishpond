@@ -49,6 +49,7 @@ pub fn ts(millis: i64) -> UnixMillis {
 
 /// Real wall-clock milliseconds — deadlines must be relative to this
 /// because the overdue probe uses the actual clock.
+#[allow(dead_code)] // not every suite in this directory needs it
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)

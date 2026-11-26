@@ -98,3 +98,45 @@ healthy (reachable, schema current) → scratch dropped. In compose, run
 both scripts inside the `postgres` service (or a sidecar with the
 same socket access), pointing `FISHPOND_DATABASE_URL` at the
 superuser url.
+
+## HA topology (F043)
+
+`docker-compose.ha.yml` is the HA variant: a PostgreSQL **primary**
+(wal_level=replica) with one streaming **hot standby**
+(`deploy/postgres/primary-init.sh` creates the replication role on
+first boot; `standby-entrypoint.sh` bootstraps the standby once via
+`pg_basebackup -R` and never re-copies on restart), plus the control
+plane as **two stateless replicas** (`mcp-a`/`mcp-b`,
+`fishpond mcp --transport http`). Placement, leases, drain and
+operations all coordinate through the database, so a replica holds
+no memory state worth failing over.
+
+Failover drill:
+
+1. Take the primary down (`docker compose -f deploy/docker-compose.ha.yml
+   stop postgres-primary`).
+2. Promote the standby:
+   `docker compose ... exec postgres-standby pg_ctl promote -U fishpond`.
+3. Repoint the control plane: edit
+   `deploy/secrets/database_url.txt` to the standby host, then
+   `docker compose ... up -d mcp-a mcp-b`. The replicas re-resolve
+   their URL from the secret file on restart — no rebuild, no image
+   change.
+4. Re-verify with the doctor one-shot against the same url.
+
+Secret notes: the replication password reaches `pg_basebackup`
+through that step's environment only; `-R` persists
+`primary_conninfo` (with the password) inside the standby's PGDATA
+volume — never in the compose file, the running service's
+environment, or logs. The MCP face reads its demo key from
+`FISHPOND_API_KEY` (env-only; the binary has no `*_FILE` variant
+yet), so that value lives in the git-ignored
+`deploy/secrets/mcp.env`. Required secret files locally:
+`postgres_password.txt`, `replication_password.txt`,
+`database_url.txt`, `mcp.env` (see the templates' keys; the files
+themselves never enter the repo).
+
+Like the other stacks, this topology is validated by
+`docker compose -f deploy/docker-compose.ha.yml config` — the worker
+entry point is still a stub upstream, so a live-stack bring-up
+remains part of the engine-face task, not this one.

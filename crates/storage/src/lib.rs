@@ -14,6 +14,7 @@
 pub mod authz;
 pub mod credentials;
 pub mod error;
+pub mod events;
 pub mod leases;
 pub mod observations;
 pub mod operations;
@@ -30,6 +31,7 @@ pub use credentials::{
     CredentialCipher, CredentialRecord, MasterKey, NewCredential, SealedSecret, SecretBox,
 };
 pub use error::{StorageError, StorageResult};
+pub use events::{InboxClaim, InboxDecision, NewEvent};
 pub use leases::AccountLease;
 pub use observations::{NewObservation, ObservationOutcome, ObservationRecord, ObservationSource};
 pub use operations::{

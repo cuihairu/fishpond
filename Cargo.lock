@@ -588,6 +588,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "fishpond-domain",
+ "futures",
  "sha2 0.10.9",
  "sqlx",
  "tokio",

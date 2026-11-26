@@ -269,7 +269,7 @@
     - 真实引擎（official API / browser）接入仍是 F032+（授权红线）；CI 注册表里只有 mock
     - execute 的调用闭包需要 Box::pin（async_trait 装箱语义）；未做便捷包装方法
     - ScopeDenied 在 gate 1：被拒 key 学不到拓扑；NotRoutable 恒失败不因 key 权限变化
-  - Commit: （待推后填写）
+  - Commit: ff71d87
 - [ ] F017 inbox/投影/outbox、事件序列、去重、缺口事件；T13（依赖 F006,F004）
 - [ ] F018 Webhook 订阅、签名、SSRF、delivery 重试/重投；T14/T17（依赖 F017,F007）
 - [ ] F019 SSE 续订/回放/权限、慢消费者处理；T15/T16（依赖 F017,F007）

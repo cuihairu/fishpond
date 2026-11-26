@@ -11,7 +11,15 @@ workspace = true
 
 [dependencies]
 fishpond-domain = { path = "../domain" }
+hmac = "0.12"
+prost = "0.13"
+sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+
+[build-dependencies]
+prost-build = "0.13"
+protox = "0.7"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }
+hex = "0.4"

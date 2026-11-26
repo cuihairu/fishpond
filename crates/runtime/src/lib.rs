@@ -11,10 +11,12 @@
 pub mod actor;
 pub mod mailbox;
 pub mod supervisor;
+pub mod wire;
 
 pub use actor::{ActorBehavior, ActorError, ActorOutcome};
 pub use mailbox::{MailboxError, MailboxPair, MailboxReceiver, MailboxSender};
 pub use supervisor::{AccountSupervisor, RestartPolicy};
+pub use wire::{IdentityError, sign_envelope, verify_envelope};
 
 #[cfg(test)]
 mod tests {

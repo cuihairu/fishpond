@@ -1,0 +1,61 @@
+// fishpond internal control-plane wire contract (F020).
+//
+// Tenant API keys (F007) authenticate *external* callers. The messages
+// here are the identity plane for *internal* services — browser
+// workers, schedulers — talking to the control plane. The generated
+// Rust types (fishpond-runtime `wire` module) are the compatibility
+// surface: golden-byte tests lock this encoding, so schema drift
+// breaks the build instead of a deployed peer.
+//
+// Compatibility rules for evolving this file (checked by tests):
+// - never renumber or reuse a field tag; only ever add new tags;
+// - never change a field's wire type;
+// - enum value numbers are frozen: 0 stays UNSPECIFIED, 1/2 stay
+//   WORKER/SCHEDULER; only append.
+syntax = "proto3";
+
+package fishpond.internal.v1;
+
+// What kind of internal service an identity names. Values are frozen
+// (see the file header); receivers reject anything they cannot map.
+enum ServiceKind {
+  SERVICE_KIND_UNSPECIFIED = 0;
+  SERVICE_KIND_WORKER = 1;
+  SERVICE_KIND_SCHEDULER = 2;
+}
+
+// Who an internal service claims to be, bound to the tenants it may
+// act for and a fencing generation (the same monotonic semantics as
+// the F012 account-lease generation: a younger generation loses).
+// Carried inside a SignedEnvelope so receivers verify the sender
+// instead of trusting the transport.
+message ServiceIdentity {
+  // The service's stable id (e.g. the worker registry id). Never a
+  // secret and never a credential.
+  string service_id = 1;
+  ServiceKind kind = 2;
+  // Tenant ids this identity may act for. Empty means bound to
+  // nothing: receivers must deny every tenant-scoped action.
+  repeated string tenant_ids = 3;
+  int64 issued_at_ms = 4;
+  int64 expires_at_ms = 5;
+  // Fencing generation, bumped whenever the service re-registers
+  // after losing its leases; mirrors the F012 lease generation.
+  uint64 generation = 6;
+}
+
+// A payload with its sender identity, bound together by an
+// HMAC-SHA256 (over this message with `mac` left empty). Receivers
+// check the MAC, the validity window and the freshness of `nonce`
+// (their own replay policy) before trusting `payload`.
+message SignedEnvelope {
+  ServiceIdentity identity = 1;
+  // The fully-qualified name of the inner message, e.g.
+  // "fishpond.internal.v1.Heartbeat" — receivers dispatch on it.
+  string payload_type = 2;
+  bytes payload = 3;
+  // Caller-supplied freshness token (monotonic counter); the
+  // receiver's dedup window is its own policy.
+  uint64 nonce = 4;
+  bytes mac = 5;
+}

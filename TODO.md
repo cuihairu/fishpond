@@ -623,7 +623,25 @@
     - 事件页只做 REST 游标翻页；SSE 实时流接入（/events/stream）归后续增量
     - authorize 动作的 credential_id 由操作员手工粘贴，凭据自动注入归 F033 网页操作面
   - Commit: 0b3bc10, 0e1c1f4, a4db1cb
-- [ ] F036 从 OpenAPI 生成 Python/TS/Go SDK（依赖 F025）— IN_PROGRESS（2026-11-27）
+- [x] F036 从 OpenAPI 生成 Python/TS/Go SDK（依赖 F025）— DONE（2026-11-27）
+  - Dependencies: F025 ✓(7a2950b,425976e,2561618)
+  - Implementation files: crates/server/tests/f036_openapi_fixture.rs, crates/server/tests/fixtures/openapi.json, crates/server/src/http/openapi.rs, crates/server/tests/f025_http.rs, scripts/generate_sdk.py, scripts/test_generate_sdk.py, packages/sdk/{package.json,tsconfig.json,eslint.config.js,src/client.ts,tests/client.spec.ts}, sdk/python/fishpond/__init__.py, sdk/python/test_client.py, sdk/go/{client.go,go.mod,client_test.go}, .github/workflows/ci.yml
+  - Commands and actual results:
+    - `cargo test -p fishpond-server --test f036_openapi_fixture` → 2 passed（fixture 与 document() 字节相等；regenerate_fixture 为 --ignored 写入器）
+    - `cargo test -p fishpond-server --test f025_http` → 11 passed（含 X-Takeover-Token 头在文档中声明、命名 schema 覆盖断言；随 1625075 落地）
+    - `python3 -m unittest discover -s scripts` → 23 tests OK（确定性两次渲染字节相等、21 个 operationId 三语全覆盖、命名 schema/分类 slug/匿名语义、仓库产物无漂移）
+    - `python3 -m unittest discover -s sdk/python` → 20 tests OK（transport 注入：bearer 注入/缺席、verify 占有路径无 bearer、Idempotency-Key、cursor/limit 编码、SSE 排水、10 slug 分类、非 problem 体合成 store-refused）
+    - `cd sdk/go && go vet ./... && go test ./...` → ok（httptest 全链路：分类表驱动、Possession 头、路径转义、空 query 省略）
+    - `pnpm --filter @fishpond/sdk lint && pnpm --filter @fishpond/sdk test && pnpm --filter @fishpond/sdk build` → 31 tests passed + tsc --noEmit 通过
+    - `pnpm -r lint && pnpm -r test && pnpm -r build` → sdk 31 + console 28 + browser-worker 18 全绿
+    - `python3 scripts/generate_sdk.py … && git diff --exit-code` → 产物零漂移（CI sdk job 同款闸门）
+  - Limitations:
+    - 生成器输入是字节冻结的 fixture（Rust 测试证明=服务端所服务文档），契约变更需走 regenerate_fixture + 重新生成 + diff 审查
+    - 生成器仅标准库（gofmt 经 subprocess 调用以获得规范格式；无 gofmt 环境下退回原文）
+    - TS 内联对象（ClaimedOperation.attempt）为内联类型；Go 为合成命名结构 ClaimedOperationAttempt；Python body 一律 dict（无 schema 反序列化）
+    - Problem schema 为手写规范形状（TS interface/Go struct），生成循环跳过该名避免重复声明
+    - 未消费真实网络（红线）：全部客户端仅按 Mock 契约测试；Go/PY SDK 未做发布打包（不建 Release，红线）
+  - Commit: 5b2872d, 1625075, a215bb5, 68c2a7a, b433afc
 - [ ] F037 多节点部署、Profile 安全迁移、租户隔离、节点 drain（依赖 F013,F024,F029）
 - [ ] F038 授权测试环境 Provider 灰度、契约回归与故障 runbook（依赖 F028,F030,F032,F033）
 

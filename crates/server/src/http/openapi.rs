@@ -228,13 +228,131 @@ pub fn document() -> serde_json::Value {
                 "get": {
                     "operationId": "streamEvents",
                     "summary": "SSE stream of the tenant's event log",
-                    "description": "text/event-stream. Reconnect with `Last-Event-ID`. \
-                                    A `slow-consumer` event names the `resume_from` id.",
+                    "description": "text/event-stream. Drains to the current head, then ends \
+                                    with a terminal `caught-up` event; reconnect (optionally \
+                                    with `Last-Event-ID`) for more. A `slow-consumer` event \
+                                    names the `resume_from` id to reconnect with.",
                     "security": [{ "bearerAuth": [] }],
+                    "parameters": [
+                        { "name": "Last-Event-ID", "in": "header", "schema": { "type": "string" },
+                          "description": "Replay strictly after this sequence number" },
+                        { "name": "consumer", "in": "query", "schema": { "type": "string" },
+                          "description": "Consumer name for the persisted checkpoint" }
+                    ],
                     "responses": {
                         "200": { "description": "The event stream", "content": {
                             "text/event-stream": { "schema": { "type": "string" } }
                         } }
+                    }
+                }
+            },
+            "/operations": {
+                "get": {
+                    "operationId": "listOperations",
+                    "summary": "List the tenant's operations (oldest first, cursor pagination)",
+                    "security": [{ "bearerAuth": [] }],
+                    "parameters": [
+                        { "name": "cursor", "in": "query", "schema": { "type": "string" },
+                          "description": "Opaque cursor" },
+                        { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1 },
+                          "description": "Maximum operations in this page" }
+                    ],
+                    "responses": {
+                        "200": { "description": "One page plus the next cursor", "content": {
+                            "application/json": { "schema": { "$ref": "#/components/schemas/OperationPage" } }
+                        } },
+                        "401": unauthorized,
+                        "403": scope_denied
+                    }
+                },
+                "post": {
+                    "operationId": "createOperation",
+                    "summary": "Idempotently create an operation (PENDING)",
+                    "description": "The `Idempotency-Key` header is mandatory. Replaying the \
+                                    same key with the same id+kind returns the original \
+                                    operation with 200; the same key with different work is \
+                                    a 409.",
+                    "security": [{ "bearerAuth": [] }],
+                    "parameters": [
+                        { "name": "Idempotency-Key", "in": "header", "required": true,
+                          "schema": { "type": "string" } }
+                    ],
+                    "requestBody": { "required": true, "content": {
+                        "application/json": { "schema": { "$ref": "#/components/schemas/CreateOperation" } }
+                    } },
+                    "responses": {
+                        "201": { "description": "The created operation", "content": {
+                            "application/json": { "schema": { "$ref": "#/components/schemas/CreatedOperation" } }
+                        } },
+                        "200": { "description": "Idempotent replay of the original operation", "content": {
+                            "application/json": { "schema": { "$ref": "#/components/schemas/CreatedOperation" } }
+                        } },
+                        "400": invalid,
+                        "401": unauthorized,
+                        "403": scope_denied,
+                        "409": conflict,
+                        "422": invalid
+                    }
+                }
+            },
+            "/operations/{id}": {
+                "get": {
+                    "operationId": "getOperation",
+                    "summary": "One operation",
+                    "security": [{ "bearerAuth": [] }],
+                    "parameters": [path_param],
+                    "responses": {
+                        "200": { "description": "The operation", "content": {
+                            "application/json": { "schema": { "$ref": "#/components/schemas/Operation" } }
+                        } },
+                        "401": unauthorized,
+                        "403": scope_denied,
+                        "404": not_found
+                    }
+                }
+            },
+            "/operations/{id}/claim": {
+                "post": {
+                    "operationId": "claimOperation",
+                    "summary": "Claim a PENDING operation (CAS to RUNNING with a numbered attempt)",
+                    "security": [{ "bearerAuth": [] }],
+                    "parameters": [path_param],
+                    "requestBody": { "required": true, "content": {
+                        "application/json": { "schema": { "$ref": "#/components/schemas/ClaimOperation" } }
+                    } },
+                    "responses": {
+                        "200": { "description": "The claimed operation and its attempt", "content": {
+                            "application/json": { "schema": { "$ref": "#/components/schemas/ClaimedOperation" } }
+                        } },
+                        "401": unauthorized,
+                        "403": scope_denied,
+                        "404": not_found,
+                        "409": conflict
+                    }
+                }
+            },
+            "/operations/{id}/attempts/{attempt_id}/close": {
+                "post": {
+                    "operationId": "closeAttempt",
+                    "summary": "Settle one attempt (succeeded/failed end the operation; timed-out requeues)",
+                    "security": [{ "bearerAuth": [] }],
+                    "parameters": [
+                        path_param,
+                        { "name": "attempt_id", "in": "path", "required": true,
+                          "schema": { "type": "string" }, "description": "Attempt id" }
+                    ],
+                    "requestBody": { "required": true, "content": {
+                        "application/json": { "schema": { "$ref": "#/components/schemas/CloseAttempt" } }
+                    } },
+                    "responses": {
+                        "200": { "description": "The operation after the close", "content": {
+                            "application/json": { "schema": { "$ref": "#/components/schemas/Operation" } }
+                        } },
+                        "401": unauthorized,
+                        "403": scope_denied,
+                        "404": not_found,
+                        "409": conflict,
+                        "422": invalid
                     }
                 }
             }
@@ -360,6 +478,73 @@ pub fn document() -> serde_json::Value {
                     "required": ["events", "next_cursor"],
                     "properties": {
                         "events": { "type": "array", "items": { "type": "object" } },
+                        "next_cursor": { "type": ["string", "null"] }
+                    }
+                },
+                "Operation": {
+                    "type": "object",
+                    "required": ["id", "kind", "state", "created_at"],
+                    "properties": {
+                        "id": { "type": "string" },
+                        "kind": { "type": "string" },
+                        "state": { "type": "string",
+                            "enum": ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"] },
+                        "created_at": { "type": "integer", "description": "unix ms" }
+                    }
+                },
+                "CreateOperation": {
+                    "type": "object",
+                    "required": ["id", "kind"],
+                    "properties": {
+                        "id": { "type": "string", "description": "client-chosen, unique per tenant" },
+                        "kind": { "type": "string", "description": "what to do (e.g. send_message)" }
+                    }
+                },
+                "CreatedOperation": {
+                    "type": "object",
+                    "required": ["operation", "replayed"],
+                    "properties": {
+                        "operation": { "$ref": "#/components/schemas/Operation" },
+                        "replayed": { "type": "boolean",
+                            "description": "true when the key returned the original, not new work" }
+                    }
+                },
+                "ClaimOperation": {
+                    "type": "object",
+                    "required": ["worker_id", "attempt_id", "deadline_at"],
+                    "properties": {
+                        "worker_id": { "type": "string" },
+                        "attempt_id": { "type": "string", "description": "client-chosen, unique per attempt" },
+                        "deadline_at": { "type": "integer", "description": "attempt deadline, unix ms" }
+                    }
+                },
+                "ClaimedOperation": {
+                    "type": "object",
+                    "required": ["operation", "attempt"],
+                    "properties": {
+                        "operation": { "$ref": "#/components/schemas/Operation" },
+                        "attempt": { "type": "object",
+                            "required": ["attempt_id", "attempt_no", "deadline_at"],
+                            "properties": {
+                                "attempt_id": { "type": "string" },
+                                "attempt_no": { "type": "integer" },
+                                "deadline_at": { "type": "integer", "description": "unix ms" }
+                            } }
+                    }
+                },
+                "CloseAttempt": {
+                    "type": "object",
+                    "required": ["worker_id", "result"],
+                    "properties": {
+                        "worker_id": { "type": "string" },
+                        "result": { "type": "string", "enum": ["succeeded", "failed", "timed-out"] }
+                    }
+                },
+                "OperationPage": {
+                    "type": "object",
+                    "required": ["operations", "next_cursor"],
+                    "properties": {
+                        "operations": { "type": "array", "items": { "type": "object" } },
                         "next_cursor": { "type": ["string", "null"] }
                     }
                 }

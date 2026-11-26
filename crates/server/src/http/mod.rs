@@ -12,7 +12,9 @@
 pub mod accounts;
 pub mod auth;
 pub mod cursor;
+pub mod events;
 pub mod openapi;
+pub mod operations;
 pub mod problem;
 pub mod sessions;
 
@@ -36,6 +38,8 @@ pub struct AppState {
     pub accounts: crate::Accounts,
     /// Authorization-session service.
     pub sessions: crate::Sessions,
+    /// Direct store handle (event-log routes read storage directly).
+    pub store: Store,
 }
 
 impl AppState {
@@ -44,7 +48,8 @@ impl AppState {
         AppState {
             keys,
             accounts: crate::Accounts::new(store.clone()),
-            sessions: crate::Sessions::new(store),
+            sessions: crate::Sessions::new(store.clone()),
+            store,
         }
     }
 }
@@ -82,6 +87,18 @@ pub fn build_router(state: AppState) -> Router {
         .route("/sessions", get(sessions::list).post(sessions::start))
         .route("/sessions/{id}", get(sessions::get))
         .route("/sessions/{id}/transition", post(sessions::transition))
+        .route("/events", get(events::list))
+        .route("/events/stream", get(events::stream))
+        .route(
+            "/operations",
+            get(operations::list).post(operations::create),
+        )
+        .route("/operations/{id}", get(operations::get))
+        .route("/operations/{id}/claim", post(operations::claim))
+        .route(
+            "/operations/{id}/attempts/{attempt_id}/close",
+            post(operations::close),
+        )
         .layer(Extension(state.keys.clone()))
         .with_state(state)
 }

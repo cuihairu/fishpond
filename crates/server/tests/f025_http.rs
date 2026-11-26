@@ -113,6 +113,12 @@ async fn openapi_document_is_served_and_contract_frozen() {
         "/accounts/{id}",
         "/status",
         "/sessions",
+        "/events",
+        "/events/stream",
+        "/operations",
+        "/operations/{id}",
+        "/operations/{id}/claim",
+        "/operations/{id}/attempts/{attempt_id}/close",
     ] {
         assert!(
             doc["paths"].get(path).is_some(),

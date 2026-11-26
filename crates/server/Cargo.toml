@@ -12,11 +12,13 @@ workspace = true
 [dependencies]
 axum = "0.8"
 fishpond-domain = { path = "../domain" }
+fishpond-events = { path = "../events" }
 fishpond-runtime = { path = "../runtime" }
 fishpond-storage = { path = "../storage" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", default-features = false, features = ["sync"] }
+tokio = { version = "1", default-features = false, features = ["sync", "rt"] }
+tokio-stream = "0.1"
 
 [dev-dependencies]
 http-body-util = "0.1"

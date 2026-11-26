@@ -117,6 +117,17 @@ impl From<ServiceError> for Problem {
     }
 }
 
+impl From<&fishpond_domain::DomainError> for Problem {
+    fn from(err: &fishpond_domain::DomainError) -> Self {
+        Problem::new(
+            "invalid",
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid request",
+            Some(err.to_string()),
+        )
+    }
+}
+
 impl From<&StorageError> for Problem {
     fn from(err: &StorageError) -> Self {
         match err {

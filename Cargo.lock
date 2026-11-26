@@ -631,12 +631,14 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "fishpond-domain",
+ "fishpond-events",
  "fishpond-runtime",
  "fishpond-storage",
  "http-body-util",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-stream",
  "tower",
 ]
 

@@ -584,7 +584,25 @@
 
 - [ ] F032 已批准官方 API 适配；未获授权项保留禁用（依赖 F001,F004,F025）— BLOCKED：待官方授权确认
 - [ ] F033 已允许网页操作适配；授权流程与页面回归（依赖 F001,F023,F024）— BLOCKED：待授权范围确认
-- [ ] F034 远程人工接管服务、短时凭证、访问隔离；T10（依赖 F011,F022,F025）
+- [x] F034 远程人工接管服务、短时凭证、访问隔离；T10（依赖 F011,F022,F025）— DONE（2026-11-27）
+  - Dependencies: F011 DONE, F022 DONE, F025 DONE
+  - Implementation files:
+    - crates/storage/migrations/0013_takeover_grants.sql（takeover_grants 表：token_hash UNIQUE、CHECK 时序、partial UNIQUE index 每会话恰一活授权；无 RLS——与 api_keys 同为 auth-time 表，验证须先于租户可知，行内只有哈希与尾提示，管理面用显式 tenant_id 谓词）
+    - crates/storage/src/takeover.rs（generate_takeover_token：OsRng 32 字节 hex、fp_tk_ 前缀；hash_takeover_token：SHA-256 无盐；issue/verify/live/list/revoke；verify 是纯持有路径不带租户上下文，live/list/revoke 是租户限定面；unique 冲突映射为命名 Conflict）
+    - crates/server/src/takeover.rs（TakeoverService：issue 先查活授权→过期满授权回收→coordinator.take_over 停自动化→铸 token（TTL 上限 MAX_TTL_MS=900s）；verify 纯持有、NotFound 不回显 presented 材料；release 只放行本会话自己的未撤销 grant（含过期遗留）→撤销→resume；Clone 经 Arc 共享同一 coordinator，门控进程级不分裂）
+    - crates/server/src/http/takeover.rs（POST /sessions/{id}/takeover 201 只回一次 token；DELETE …/takeover/{grant_id} 释放；GET 审计列表仅哈希+尾提示；POST /takeover/verify 凭 X-Takeover-Token 头、无 bearer——短时凭证即凭据；缺头 401、未知/过期/撤销 404 不回显）
+    - crates/server/src/http/{mod.rs,sessions.rs,openapi.rs}（AppState 挂 takeover；路由注册；parse_session_id 提升为 pub(super)；openapi 四条 path 补齐）
+  - Commands and actual results:
+    - `cargo test -p fishpond-storage --test takeover_grants`（真库）→ 6 通过：生命周期 issue→verify→revoke→verify 失败、每会话唯一活授权（撤销后可重发）、过期边界（expires_at 时刻即失效）、外租户管理面全空且 revoke 无效、库存行只有哈希+尾提示（裸池扫描不含原 token）、未知 token 验证为空
+    - `cargo test -p fishpond-server --test f034_takeover`（真库）→ 7 通过：issue 翻 TAKEN_OVER 且 token 可验、PENDING 拒绝（InvalidTransition）、TTL 上限内才发（0/负/超限 422 语义）、过期/撤销/陌生 token 全拒、release 撤销并回到 AUTHORIZED、活授权挡二次 issue 直到释放、外租户 release 无效且授权存活
+    - `cargo test -p fishpond-server --test f034_http`（真库）→ 2 通过：issue→verify→审计→release→验证死全链路（verify 无 bearer）、scope 强制 403、幽灵会话 404、ttl 0 → 422、缺 token 头 401、活授权冲突 409、外租户 release 404 且审计列表为空且接管存活
+    - 门禁：`cargo fmt --check` 通过；`cargo clippy --workspace --all-targets -- -D warnings` 默认与 1.88 工具链均零警告；`FISHPOND_TEST_DATABASE_URL=… cargo test --workspace` → 88 套全绿 374 通过 0 失败；`python3 scripts/check_workspace.py` → 16 members 合规
+  - Limitations / BLOCKED reasons:
+    - F034 交付的是接管的服务与凭证面；接管期间驱动浏览器会话的实时通道（页面代理/CDP 中继）归 Console（F035）与网页操作面（F033，BLOCKED 待授权）
+    - grant 审计只入库不进事件日志；takeover.granted/revoked 事件化归后续观测接线
+    - verify 是无速率限制的查表端点；暴力猜 256-bit token 不可行，但限流仍建议归控制面加固任务
+    - release 只回 AUTHORIZED 不复活 actor（F011 非对称语义不变）
+  - Commit: 961bf36, d27b809, d1c46dd
 - [ ] F035 Vue Console 各管理页、权限及 UNKNOWN 正确展示（依赖 F025,F027,F034）
 - [ ] F036 从 OpenAPI 生成 Python/TS/Go SDK（依赖 F025）
 - [ ] F037 多节点部署、Profile 安全迁移、租户隔离、节点 drain（依赖 F013,F024,F029）

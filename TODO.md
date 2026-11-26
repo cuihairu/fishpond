@@ -403,7 +403,31 @@
     - 真实网页/真平台操作仍归 F032+（红线）；CI 不装浏览器整体跳过（同 F021 惯例），本地全跑
   - Commit: f00b7a4
 - [ ] F024 双引擎路由接入、按能力降级、浏览器背压；T09/T25（依赖 F021,F016,F022）
-- [ ] F025 Axum REST/OpenAPI、Problem Details、cursor、幂等、契约测试（依赖 F009,F014,F016,F017,F018,F019）
+- [x] F025 Axum REST/OpenAPI、Problem Details、cursor、幂等、契约测试（依赖 F009,F014,F016,F017,F018,F019）— DONE（2026-11-27）
+  - Dependencies: F009 ✓, F014 ✓, F016 ✓, F017 ✓, F018 ✓, F019 ✓
+  - Implementation files: crates/server/src/http/{mod.rs,problem.rs,auth.rs,cursor.rs,openapi.rs,accounts.rs,sessions.rs,events.rs,operations.rs}, crates/server/src/lib.rs, crates/server/Cargo.toml, crates/server/tests/{common/mod.rs,f025_http.rs,f025_http_routes.rs,f025_http_events.rs,f025_http_operations.rs}
+    - 管道（增量 A）：RFC 9457 problem+json（type 基 `https://fishpond.dev/problems/{class}`；ServiceError/StorageError/DomainError/StreamError 全映射，内部存储失败 500 恒泛化不泄 SQL/原因）；bearer key 认证（RestKeys 键册→Caller{tenant,scopes}，经 request extensions 注入使 extractor 纯可测；401 细节永不回显 key）；静态 OpenAPI 3.1 文档 `/openapi.json`（契约测试钉住版本/路径集/Problem schema/bearerAuth）；`/healthz`
+    - 账号/会话（增量 B）：`/accounts` 注册(201)/查/列表/状态机步进/`/status` 计数汇总；`/sessions` 启动/查单/列表 + `/sessions/{id}/transition`（confirm/authorize/expire/revoke/fail/take-over/resume；authorize 强制 credential_id+credential_version，缺失 422、凭证不存在 404；非法步 409）
+    - cursor 分页：`c{offset}` 不透明游标（垃圾 400 invalid-cursor），limit 默认 50 封顶 200（0/负/非数 400 invalid-limit），尾页无 next_cursor
+    - 事件（增量 C）：`GET /events`=F019 游标语义（cursor=最后交付 seq，页严格其后，页满给 next_cursor，payload 以 JSON 内嵌）；`GET /events/stream`=F019 延后的 SSE socket 层（复用 StreamSession：Last-Event-ID 重放/live tail 从 head 或 checkpoint，逐页排水到 head，`id: <seq>`/`event: <type>`/`data: <json>` 帧 + 终局 caught-up 或 slow-consumer{resume_from,lag} 后断连，客户端重连即续；scope 缺失 403 与 F007 同类）
+    - 操作（增量 C）：`POST /operations` 幂等创建（Idempotency-Key 头强制，缺 400 missing-idempotency-key；同键同 id+kind 重放 200 返回原件 replayed:true、同键不同工作 409）；`GET /operations` 游标列表/`GET` 单个；`/{id}/claim`（PENDING→RUNNING CAS，败者 409，attempt_no 递增）；`/{id}/attempts/{attempt_id}/close`（succeeded/failed 终态、timed-out 回 PENDING 且下次 claim 编号 +1；错 worker 关单 404、重复关 409、终态再 claim 409）
+  - Commands and actual results:
+    - `cargo fmt --check` → 通过
+    - `cargo clippy --workspace --all-targets -- -D warnings` → 0 警告（默认工具链与 `rustup run 1.88.0` 双过）
+    - `cargo test -p fishpond-server --test f025_http` → 11 passed; 0 failed（纯层+门控路由）
+    - `cargo test -p fishpond-server --test f025_http_routes` → 2 passed; 0 failed（真实库）
+    - `cargo test -p fishpond-server --test f025_http_events` → 3 passed; 0 failed（真实库）
+    - `cargo test -p fishpond-server --test f025_http_operations` → 2 passed; 0 failed（真实库）
+    - `cargo test --workspace` → 278 passed; 0 failed（基线 260 + 新增 18）
+    - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members
+  - Limitations / BLOCKED reasons:
+    - 分三增量即验即推：A=REST 管道（7a2950b）、B=账号+会话路由（425976e）、C=事件+操作路由（2561618）
+    - REST key store 是进程内 RestKeys（同 F009M 的 server-local 模型），测试用种子键；持久化 key store（F007 已落库）到 REST 面的接线属消费方集成，未在本任务
+    - worker 注册的签名 ServiceIdentity 信封控制面端点未做：F025 任务行只点名 REST/OpenAPI/Problem/cursor/幂等，信封注册对端（F023 遗留项）待控制面任务授权后另行落地
+    - REST DTO 与 MCP wire DTO 仍并存（F009 行注记的整合=wire 层各自映射，domain 保持零依赖）；OpenAPI→SDK 生成归 F036
+    - SSE 为排水-终局语义（page() 不阻塞等新事件，连到 head 即断），长连 live-tail 推送需事件等待原语，归 F030 观测面再评估
+    - 真实平台连接仍红线禁入；全部路由对 Mock 目标可跑
+  - Commit: 7a2950b, 425976e, 2561618
 - [ ] F026 Mock 端到端流程：授权→消息→商品→订单→操作→Webhook（依赖 F025）
 - [ ] F027 Monitor、健康注册、能力禁用、契约异常诊断、incident API（依赖 F016,F004）
 - [ ] F028 Provider manifest/digest、签名校验、版本并存、灰度与回滚；T19（依赖 F027,F020）

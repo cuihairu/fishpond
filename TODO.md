@@ -388,7 +388,20 @@
     - ProfileManager 备份：`backup_root/<profile_id>/<unix_ms>/` 快照 + manifest.json（逐文件 SHA-256，digest=排序 path\thex 行的 SHA-256），digest 记入 DB；恢复先验签后动盘（漂移报 Tampered 命名相对路径），最新快照优先；销毁 wipe 目录+墓碑
     - 快照为整目录复制（非增量/无压缩）；跨机磁盘由调用方保证 backup_root 可达；真连接/真浏览器 profile 目录属 F032+
   - Commit: 7e650f0
-- [ ] F023 Page Object 操作、前后条件和结果证据；T08（依赖 F021,F014）
+- [x] F023 Page Object 操作、前后条件和结果证据；T08（依赖 F021,F014）
+  - Dependencies: F021 ✓(1f0861b), F014 ✓
+  - Implementation files: packages/browser-worker/src/evidence.ts, packages/browser-worker/src/conditions.ts, packages/browser-worker/src/page-object.ts, packages/browser-worker/src/page-object.test.ts, packages/browser-worker/src/index.ts
+  - Commands and actual results:
+    - `pnpm install --frozen-lockfile` → lockfile up to date
+    - `pnpm -r run lint` → all packages Done（0 错误）
+    - `pnpm -r run test` → 18 passed（3 文件；12 既有 + 6 新增 F023，本地真实 chromium 全跑）
+    - `pnpm -r run build` → all packages Done（tsc 严格模式 0 错误）
+  - Limitations / BLOCKED reasons:
+    - T08 按任务标题映射：Page Object 操作（PageObject 原语：click/fill/textContent/attribute/isVisible/count）+ 前后条件（Condition: visible/hidden/textMatches，非等待探针）+ 结果证据（Evidence: DOM 快照/PNG 截图，自带 SHA-256 与字节数）
+    - runOperation 固定顺序 pre→action→evidence→post：pre 失败短路（action 不跑、无证据）；action 抛错仍捕获证据（现场即审计材料）；post 失败 operation 记 ok:false/stage:"post" 但 value 已产生；error 字段只带 message 不带页面内容
+    - 证据只留在内存（Outcome.evidence），落盘/回传 F014 attempt 记录归 F024/F025 传输面；PageObject 保持 Playwright 严格模式（多匹配选择器报错，count() 是多匹配工具）
+    - 真实网页/真平台操作仍归 F032+（红线）；CI 不装浏览器整体跳过（同 F021 惯例），本地全跑
+  - Commit: f00b7a4
 - [ ] F024 双引擎路由接入、按能力降级、浏览器背压；T09/T25（依赖 F021,F016,F022）
 - [ ] F025 Axum REST/OpenAPI、Problem Details、cursor、幂等、契约测试（依赖 F009,F014,F016,F017,F018,F019）
 - [ ] F026 Mock 端到端流程：授权→消息→商品→订单→操作→Webhook（依赖 F025）

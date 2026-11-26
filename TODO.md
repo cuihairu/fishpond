@@ -230,7 +230,25 @@
     - attempt.worker / operation.claimed_by 为软引用，不强制外键到 workers，注册行可短暂后于/先于引用存在
     - 服务层编排（claim 循环、收割策略）未在本任务，留待调用方 crate
   - Commit: d3e9773
-- [ ] F015 reconcile 服务、UNKNOWN 和人工核对（依赖 F014,F004）
+- [x] F015 reconcile 服务、UNKNOWN 和人工核对（依赖 F014,F004）— DONE
+  - Dependencies: F014（DONE）, F004（DONE）
+  - Implementation files:
+    - crates/storage/migrations/0008_account_observations.sql（account_observations 审计表：source=reconcile/manual、observed、outcome、note、operator，复合 PK + FORCE RLS + 账号索引）
+    - crates/storage/src/observations.rs（record_observation：UNKNOWN 观测强制带 note；list_observations 新→旧；ObservationSource/ObservationOutcome 解析）
+    - crates/operations/src/reconcile.rs（Reconciler：reap_deadlines/reap_expired 收割过期 attempt 为 TimedOut、probe_account 注入式 AccountProbe 应用观测、confirm_manual 人工核对入口；ReconcileError/ProbeOutcome/ReconcileStep/ReapReport）
+    - crates/operations/tests/{common/mod.rs, reconcile.rs} + crates/storage/tests/observations.rs + reconcile.rs 3 条单测
+  - Commands and actual results:
+    - cargo fmt --all -- --check：通过
+    - cargo clippy --workspace --all-targets -- -D warnings：默认工具链与 1.88 CI 工具链均零警告
+    - FISHPOND_TEST_DATABASE_URL 指向本地测试库时 cargo test --workspace：187 passed / 0 failed（新增：storage 3 条审计表真库测试 + operations 3 条单测 + 8 条 reconcile 真库测试：收割含限额/幂等/worker 先完成的 contested 竞态、probe 解决 UNKNOWN/标记 UNKNOWN/刷新 note/跳过 DISABLED 不调用 probe/拒绝假观测、人工核对应用+审计 operator/拒绝 UNKNOWN·匿名·DISABLED、租户隔离）
+    - python3 scripts/check_workspace.py：workspace structure ok: 15 members, layering rules satisfied（operations 仅依赖 domain/storage）
+  - Limitations / BLOCKED reasons:
+    - AccountProbe 是注入特质：真实上游探测属 F032/F033（授权受限），CI 只用 mock probe（Mock 是唯一 CI 目标）
+    - 审计表只追加不清理：每次探测/人工确认一行，量大后需要归档策略（未在本任务）
+    - reap 对无 worker 的在途 attempt 只跳过（close CAS 绑定 holder）；该形态仅可能由手插行产生，claim 恒写 worker
+    - 人工核对只允许 ONLINE/OFFLINE（人不能"确认未验证"）；核对记录走审计表，账号行保持域不变量（确认态无 note）
+    - reconcile 编排循环（定时 tick、全量账号扫描入口）未在本任务，留给调度面/F025 wire 层组装
+  - Commit: （待推后填写）
 - [ ] F016 Capability Router、授权优先级、错误分类、熔断；T05/T06/T23（依赖 F004,F014）
 - [ ] F017 inbox/投影/outbox、事件序列、去重、缺口事件；T13（依赖 F006,F004）
 - [ ] F018 Webhook 订阅、签名、SSRF、delivery 重试/重投；T14/T17（依赖 F017,F007）

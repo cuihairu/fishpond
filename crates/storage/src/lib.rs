@@ -15,6 +15,7 @@ pub mod authz;
 pub mod credentials;
 pub mod error;
 pub mod leases;
+pub mod observations;
 pub mod operations;
 pub mod sessions;
 pub mod store;
@@ -30,6 +31,7 @@ pub use credentials::{
 };
 pub use error::{StorageError, StorageResult};
 pub use leases::AccountLease;
+pub use observations::{NewObservation, ObservationOutcome, ObservationRecord, ObservationSource};
 pub use operations::{
     AttemptClose, AttemptRecord, ClaimedOperation, CreatedOperation, ExpiredAttempt, NewOperation,
 };

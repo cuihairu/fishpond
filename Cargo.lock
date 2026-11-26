@@ -512,6 +512,12 @@ version = "0.1.0"
 [[package]]
 name = "fishpond-operations"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fishpond-domain",
+ "fishpond-storage",
+ "tokio",
+]
 
 [[package]]
 name = "fishpond-provider-mock"

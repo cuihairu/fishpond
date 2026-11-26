@@ -62,11 +62,15 @@ pub struct QueueDepthReport {
 }
 
 impl QueueDepthReport {
-    /// The operation backlog: the total over all states — the store
-    /// keeps only non-terminal operations (`PENDING`/`RUNNING`), so
-    /// every row is outstanding work.
+    /// The operation backlog: non-terminal operations only — terminal
+    /// rows (`SUCCEEDED`/`FAILED`/`CANCELLED`) are kept for audit and
+    /// must not count as outstanding work.
     pub fn backlog(&self) -> i64 {
-        self.operations_by_state.iter().map(|(_, n)| *n).sum()
+        self.operations_by_state
+            .iter()
+            .filter(|(state, _)| !matches!(state.as_str(), "SUCCEEDED" | "FAILED" | "CANCELLED"))
+            .map(|(_, n)| *n)
+            .sum()
     }
 }
 
@@ -128,5 +132,23 @@ mod tests {
             capacity: 0,
         };
         assert_eq!(sample.ratio(), 0.0);
+    }
+
+    #[test]
+    fn backlog_counts_only_non_terminal_states() {
+        let report = QueueDepthReport {
+            tenant: "t".to_owned(),
+            operations_by_state: vec![
+                ("SUCCEEDED".to_owned(), 500),
+                ("FAILED".to_owned(), 2),
+                ("CANCELLED".to_owned(), 1),
+                ("PENDING".to_owned(), 3),
+                ("RUNNING".to_owned(), 1),
+            ],
+            in_flight_attempts: 0,
+            overdue_attempts: 0,
+            consumer_lag: 0,
+        };
+        assert_eq!(report.backlog(), 4);
     }
 }

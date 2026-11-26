@@ -6,26 +6,57 @@
 //! DTOs.
 //!
 //! The router is transport-only: every handler is a thin call into
-//! `Accounts`/`Sessions`/`SessionCoordinator`/storage plus a mapping
-//! into [`problem::Problem`] or a JSON DTO.
+//! `Accounts`/`Sessions`/storage plus a mapping into
+//! [`problem::Problem`] or a JSON DTO.
 
+pub mod accounts;
 pub mod auth;
+pub mod cursor;
 pub mod openapi;
 pub mod problem;
+pub mod sessions;
 
-use axum::Json;
-use axum::Router;
-use axum::routing::get;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use axum::routing::{get, post};
+use axum::{Extension, Json, Router};
+use fishpond_domain::UnixMillis;
+use fishpond_storage::Store;
 use serde::Serialize;
 
 use auth::RestKeys;
 use problem::Problem;
 
 /// Shared state behind every route.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppState {
     /// Bearer-key registry (tenant + scopes per key).
     pub keys: RestKeys,
+    /// Account management service.
+    pub accounts: crate::Accounts,
+    /// Authorization-session service.
+    pub sessions: crate::Sessions,
+}
+
+impl AppState {
+    /// Builds the state over one connected store.
+    pub fn new(store: Store, keys: RestKeys) -> Self {
+        AppState {
+            keys,
+            accounts: crate::Accounts::new(store.clone()),
+            sessions: crate::Sessions::new(store),
+        }
+    }
+}
+
+/// The current wall-clock instant (handlers stamp transitions with
+/// "now"; deterministic instants live in the services' tests).
+pub fn now() -> UnixMillis {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock is after the epoch")
+        .as_millis() as i64;
+    UnixMillis::from_millis(millis).expect("wall clock is representable")
 }
 
 /// The `GET /healthz` body.
@@ -44,6 +75,14 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(health))
         .route("/openapi.json", get(openapi::serve))
+        .route("/accounts", get(accounts::list).post(accounts::register))
+        .route("/accounts/{id}", get(accounts::get))
+        .route("/accounts/{id}/state", post(accounts::set_state))
+        .route("/status", get(accounts::status))
+        .route("/sessions", get(sessions::list).post(sessions::start))
+        .route("/sessions/{id}", get(sessions::get))
+        .route("/sessions/{id}/transition", post(sessions::transition))
+        .layer(Extension(state.keys.clone()))
         .with_state(state)
 }
 

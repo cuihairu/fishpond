@@ -62,17 +62,15 @@ impl Caller {
     }
 }
 
-/// Extracts and authenticates the caller against the router state's
-/// key store, producing RFC 9457 problems on failure: 401 for a
+/// Extracts and authenticates the caller against the request's key
+/// store (the router installs `RestKeys` as an extension from its
+/// state), producing RFC 9457 problems on failure: 401 for a
 /// missing/unknown key, nothing else here (scope checks stay in
 /// handlers, which know the required scope).
-impl FromRequestParts<super::AppState> for Caller {
+impl<S: Send + Sync> FromRequestParts<S> for Caller {
     type Rejection = Problem;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &super::AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let header = parts
             .headers
             .get(axum::http::header::AUTHORIZATION)
@@ -96,9 +94,15 @@ impl FromRequestParts<super::AppState> for Caller {
                     Some("Authorization must be `Bearer <key>`".to_owned()),
                 )
             })?;
-        state
-            .keys
-            .authenticate(key)
+        let keys = parts.extensions.get::<RestKeys>().ok_or_else(|| {
+            Problem::new(
+                "unauthorized",
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                Some("no key store configured".to_owned()),
+            )
+        })?;
+        keys.authenticate(key)
             .map(|record| Caller {
                 tenant: record.tenant_id,
                 scopes: record.scopes,

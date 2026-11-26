@@ -328,7 +328,26 @@
     - 回放豁免 lag drop：显式要历史的客户端按页耗尽，不受 horizon 拦截（否则大回放永不可能）
     - 慢消费者不做自动降采样/合并：drop+Last-Event-ID 续订是唯一策略，客户端可自选回放点
   - Commit: 9b31ba7
-- [ ] F020 Protobuf 生成、内部服务身份、契约兼容测试（依赖 F004,F012）
+- [x] F020 Protobuf 生成、内部服务身份、契约兼容测试（依赖 F004,F012）— DONE
+  - Dependencies: F004（DONE）, F012（DONE）
+  - Implementation files:
+    - proto/fishpond/internal/v1/identity.proto（内部 wire 契约源：ServiceKind 枚举值冻结（0=UNSPECIFIED/1=WORKER/2=SCHEDULER，只许追加）；ServiceIdentity{service_id,kind,tenant_ids 绑定（空=全拒绝）,issued/expires_at_ms,generation=复用 F012 租约 fencing 语义}；SignedEnvelope{identity,payload_type 全限定名,payload,nonce=调用方新鲜度令牌,mac}；文件头写死兼容规则：禁改号/禁复用 tag/禁改 wire type/枚举只追加）
+    - crates/runtime/build.rs（protox 纯 Rust 把 .proto 编成 FileDescriptorSet + prost-build 生成——CI 免系统 protoc；rerun-if-changed 覆盖整个 proto 树）
+    - crates/runtime/src/wire.rs（生成类型入 pb 模块=契约面；sign_envelope/verify_envelope：MAC 输入=信封自身 wire 编码（mac 置空）——复用编码器免自造帧格式；HMAC-SHA256 常时比较；verify 顺序=形状（mac/payload_type/identity/service_id/kind 可映射/时效窗口非负）→ MAC → NotYetValid（issued>now）→ Expired（expires<=now）全部 fail-closed；错误只带静态字段名，Debug/Display 永无秘密与 payload）
+    - crates/runtime/src/lib.rs（mod wire + pub use 接线）
+    - 单测 9 条=契约兼容面：golden 字节锁编码（identity/envelope 十六进制向量由独立 Python 编码器计算）、MAC 独立向量（python hmac 计算）、golden 解码重编码字节恒等、未知字段（新版本追加 field 15）解码跳过不致命且已知字段完好、枚举 wire 值冻结（1/2=WORKER/SCHEDULER；未映射值可解码但 verify 拒 Malformed）、信封逐字节绑定（错 secret/篡 payload/抬 generation/换 nonce 全 Mismatch）、时效窗口两端 fail-closed（999/1000/1999/2000 边界）、畸形信封（空 mac/payload_type/service_id/identity/负窗口）、错误文本无秘密无 payload
+  - Commands and actual results:
+    - cargo fmt --all -- --check：通过
+    - cargo clippy --workspace --all-targets -- -D warnings：默认工具链与 1.88 CI 工具链均零警告
+    - FISHPOND_TEST_DATABASE_URL 指向本地测试库时 cargo test --workspace：253 passed / 0 failed（F020 新增 9 条 wire 单测；DB 面 244 条不变）
+    - python3 scripts/check_workspace.py：workspace structure ok: 15 members, layering rules satisfied
+  - Limitations / BLOCKED reasons:
+    - 只定义消息不定义 service/rpc：tonic 传输面（真实网络）属 F032+ 红线，F021/F025 落传输时再扩展 .proto（消息只追加即兼容）
+    - 生成代码落 fishpond-runtime：server/worker 共同的低层 crate（layering 正确）；domain 禁外部依赖不可选；worker 侧消费待 F021 接线
+    - verify 不查 nonce 唯一性：新鲜度/重放窗口是接收方策略（信封只保证 nonce 被签名绑定），跨请求去重表归传输面
+    - tenant_ids 是字符串列表不引 domain 类型：pb 层零 domain 耦合，绑定校验（解析+租户存在性）归验证方
+    - prost 解码丢弃未知字段（proto3 语义允许）：前向兼容=解码不失败，字段保真回传需后续方案
+  - Commit: 944c3cc
 
 ## M2（F021–F031）：双引擎、API、单机完整 Mock 交付
 

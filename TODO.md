@@ -210,7 +210,7 @@
   - Limitations / BLOCKED reasons:
     - drain 迁移是亲和中性的（required=[]，任意容量合格的活 worker 可接）：账号级 affinity 要求不持久化（workers.capabilities 只是 worker 侧词汇），账号 → required 的映射归调用方/wire 层（F025）评估后传给 assign
     - assign 的 CAS 冲突不自动换候选重试（调用方下一 tick 重试即可，冲突已点名赢家）；迁移同理，contested 账号留给下一轮
-    - 迁移逐账号取 worker 快照（O(n·m) 查询），量大后可合并为一次快照批量挑位——留给 F037 多节点 drain 前的优化
+    - 迁移逐账号取 worker 快照（O(n·m) 查询），量大后可合并为一次快照批量挑位——F037 未做此优化（drain_node 复用 migrate_off，继承该复杂度），保留为后续优化项
     - drain 不自动注销：只钉住放置面并搬走租约，注册行保留（心跳停后自然进 lost 集合），注销保持显式操作
     - KeepAlive 的账号集构造时固定；动态增减账号（F014 operation claim 之后）由调用方重建服务或后续扩展
   - Commit: 9e55a36（存储面）/ 4510c5d（placement 容量亲和）/ 360addb（scheduler assign/drain/takeover）/ 729f3e8（worker keepalive）
@@ -642,7 +642,26 @@
     - Problem schema 为手写规范形状（TS interface/Go struct），生成循环跳过该名避免重复声明
     - 未消费真实网络（红线）：全部客户端仅按 Mock 契约测试；Go/PY SDK 未做发布打包（不建 Release，红线）
   - Commit: 5b2872d, 1625075, a215bb5, 68c2a7a, b433afc
-- [ ] F037 多节点部署、Profile 安全迁移、租户隔离、节点 drain（依赖 F013,F024,F029）— IN_PROGRESS（增量 A：节点 drain）
+- [x] F037 多节点部署、Profile 安全迁移、租户隔离、节点 drain（依赖 F013,F024,F029）— DONE（2026-11-27）
+  - Dependencies: F013, F024, F029（全部 DONE）
+  - Implementation files: crates/scheduler/src/scheduler.rs（drain_node + UnknownNode + NodeDrainReport + drain_mark 抽取）、crates/scheduler/tests/f037_nodes.rs、crates/storage/src/profiles.rs（move_profile）、crates/worker/src/profile.rs（migrate + scan_tree/write_snapshot/verify_snapshot/materialize 抽取 + SamePath + MigrateReport/MigrationTarget）、crates/worker/src/lib.rs（导出）、crates/worker/tests/f037_migrate.rs、deploy/docker-compose.multi.yml、deploy/README.md
+  - Commands and actual results:
+    - `cargo fmt --check` 通过；`cargo clippy --workspace --all-targets -- -D warnings` 零警告
+    - `FISHPOND_TEST_DATABASE_URL=postgres://fishpond_test@… cargo test --workspace` → **391 passed / 0 failed（93 套件）**（基线 388 + 3 migrate 测试；f037_nodes 3/3、f037_migrate 3/3、f022 4/4 证明 backup/restore 重构无回归）
+    - `docker compose -f deploy/docker-compose.multi.yml config`（临时 dummy secrets）→ exit 0，3 个 worker 服务 + 3 个 per-node 卷映射正确（验后已删 dummy）
+  - 交付内容:
+    - **节点 drain**：`Scheduler::drain_node(tenant, node)` 按 worker **name** 聚合同机多进程；先全标 draining 再迁移（防账号落到同节点未 drain 的兄弟进程——首版实现踩过此坑，测试逼出）；drain 幂等（already_draining 计数）；未知/他租户同名节点 → `UnknownNode` 拒绝（不做静默空成功）
+    - **Profile 安全迁移**：storage `move_profile` 只换 storage_path（拒绝 destroyed、不动 sealed envelope/备份簿记——刻意非 upsert）；`ProfileManager::migrate` 在排他锁下：快照源树（manifest）→ 物化目的地副本 → digest 逐字节复核 → 行交换 → 快照记簿记（回滚工件）→ 恢复 active → 最后删旧树；SamePath/destroyed/目的地已存在/源树缺失全在动盘前拒绝；restore 可从迁移快照回滚到新路径
+    - **租户隔离**：跨租户同名节点 drain 不可见且租约不被裁（f037_nodes）；跨租户 profile 迁移 NotFound + 锁被外人持有时迁移拒绝并点名 holder（f037_migrate）；失败路径锁全部释放（generation 1 重取）
+    - **多节点部署**：deploy/docker-compose.multi.yml——共享单库（放置/租约/drain 经库协调，节点间无需互通）、worker 服务按生产形状（`--name node-N` + per-node profile 卷 + unless-stopped）、file-secrets 沿用 F029 规则；README 多节点拓扑 runbook（节点身份=worker name、drain 语义、迁移语义、stub 现状）
+  - Limitations / BLOCKED reasons:
+    - worker 入口仍是 stub（`fn main() {}`）：compose worker 服务启动后立即退出，引擎面任务落地后免改动入栈（F029 既有限制的延续）
+    - 全栈 `docker compose up` 未跑（同 F029 验证标准：config 语义校验 + 真库多节点行为测试）；全栈拉起验收归集成面
+    - 迁移顺序是「物化+复核→行交换」：若 DB 行交换失败，目的地树残留但行仍指旧路径——下次迁移会以 destination-exists 拒绝，需运维清理（安全方向：绝不指向未验证副本）
+    - 旧树删除在行交换之后：删除失败返回错误但迁移已提交（profile 已在新路径存活），孤儿树需运维清理（profile.rs 文档注明）
+    - KEK 不重封：迁移不解密 envelope（跨节点零明文暴露）；跨 KEK 轮换的 rewrap 归密钥管理面
+    - drain_node 继承 migrate_off 的逐账号快照 O(n·m)（见 F013 行，优化留后续）
+  - Commit: 0433274（节点 drain）, 5ef454b（profile 迁移）, a01470a（多节点 compose）
 - [ ] F038 授权测试环境 Provider 灰度、契约回归与故障 runbook（依赖 F028,F030,F032,F033）
 
 ## M4（F039–F041）：稳定性和发布

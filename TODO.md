@@ -468,7 +468,27 @@
     - Webhook transport 是进程内记录器：真 HTTP 客户端按红线归 F032+；SSRF/签名/重试/放弃语义已在 F018 全测，此处只验扇出衔接
     - orders:manage 保持不可路由是设计而非缺口（真实订单面随 F032+ 授权 provider 落地）
   - Commit: 3620545
-- [ ] F027 Monitor、健康注册、能力禁用、契约异常诊断、incident API（依赖 F016,F004）
+- [x] F027 Monitor、健康注册、能力禁用、契约异常诊断、incident API（依赖 F016,F004）— DONE（2026-11-27）
+  - Dependencies: F016 ✓(2561618), F004 ✓
+  - Implementation files: crates/storage/migrations/0012_monitor.sql, crates/storage/src/monitor.rs, crates/storage/src/lib.rs, crates/storage/tests/monitor.rs, crates/monitor/（Cargo.toml、src/{lib,error,health,switchboard,incident,diagnostics}.rs、tests/{common/mod.rs,f027_monitor.rs}）, Cargo.lock
+    - 存储层：三张 operator-plane 表——platform_health（每平台 last-write-wins 探针结果）、capability_overrides（(platform,capability) 主键的 kill switch，absent=未裁决=放行）、incidents（(tenant_id,id) 主键 + open 部分索引）；迁移注明刻意置于租户 RLS 之外（monitor 是 operator 面），incidents 仅带 tenant 引用（''=平台级）作 listing 作用域，非安全边界
+    - Store 仓库：upsert_health/list_health/health_of；set/list/find_capability_override；open_incident 幂等（ON CONFLICT DO NOTHING→bool）、close_incident 一次（WHERE closed_at IS NULL→bool）、list_incidents 按 tenant 作用域过滤（open_only 可选）
+    - 服务层 fishpond-monitor：HealthStatus{healthy|degraded|down|unknown}+HealthRegistry（record/snapshot/status_of，未探测=unknown）；CapabilitySwitchboard（disable/enable/denies/overrides，Capability::as_str 落库）；Severity{info|warning|critical}+IncidentLog（IncidentDraft 入参、open 幂等、close 一次、空 id 拒 MonitorError::EmptyId）
+    - 契约异常诊断：diagnose 把套件报告映射为 ContractAnomaly{Global(manifest_valid/version_negotiation)|Capability(按 manifest 声明归属；未声明能力的失败=局部 provider 套件噪音，不记)}；能力→检查映射 Authorize→[unauthorized_account_is_auth_error,authorize_then_send]、SendMessage→[authorize_then_send,idempotent_replay,empty_text_rejected,unknown_conversation_rejected]、ReadConversations→[conversations_listed,history_oldest_first]，套件不覆盖的能力映射留空
+    - audit 每异常开 incident（kind=contract-anomaly；Global→critical、Capability→warning；id 折入 run_id：同 run 重放是 no-op 不加倍，新 run 开新 incident）；probe_platform 一口气 run_contract_suite→audit→健康落库（干净=healthy、能力异常=degraded、全局异常=down）
+  - Commands and actual results:
+    - `cargo fmt --check` → 通过
+    - `cargo clippy --workspace --all-targets -- -D warnings` → 0 警告（默认与 1.88 双过；注：1.88 的 clippy 组件被系统升级清掉，已 rustup component add 装回）
+    - `FISHPOND_TEST_DATABASE_URL=… cargo test -p fishpond-storage --test monitor` → 4 passed; 0 failed（health last-write-wins、override 翻转读回、incident 开一次关一次、listing 不跨 tenant 引用）
+    - `FISHPOND_TEST_DATABASE_URL=… cargo test -p fishpond-monitor` → 8 passed; 0 failed（纯：状态/严重度词表 round-trip、异常归属映射含「未声明能力不记异常」；真库：registry 最后一次胜、kill switch 翻转、incident 生命周期+空 id 拒绝、mock 探测=healthy 零 incident、BrokenSender（声明 conversations:write 但 send 恒 Transient）→degraded+能力 warning incident、同 run_id 重放不加倍/新 run_id 开新 incident/逐个关且二关 false、audit 对 manifest_valid 失败开 critical）
+    - `FISHPOND_TEST_DATABASE_URL=… cargo test --workspace` → 299 passed; 0 failed（基线 287 + 新增 12）
+    - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members
+  - Limitations / BLOCKED reasons:
+    - probe/audit 的调用方（定时巡检任务、控制面接线）归后续任务；本任务交付 monitor 原语与其验收
+    - incident 的 HTTP 面（GET /incidents 等）归控制面任务；此处只有 Rust 服务层
+    - 契约套件不覆盖的能力（catalog/orders/events/stream）诊断无从归属——映射表留空，套件扩检查时再补
+    - 真实平台探测仍红线禁入；mock 是唯一探测目标
+  - Commit: f99bffa
 - [ ] F028 Provider manifest/digest、签名校验、版本并存、灰度与回滚；T19（依赖 F027,F020）
 - [ ] F029 Compose、迁移 job、secret mount、健康检查、CLI doctor（依赖 F025,F026）
 - [ ] F030 tracing、指标、队列深度、资源告警；脱敏扫描（依赖 F010,F014,F017）

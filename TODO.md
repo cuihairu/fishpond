@@ -351,7 +351,26 @@
 
 ## M2（F021–F031）：双引擎、API、单机完整 Mock 交付
 
-- [ ] F021 Browser Worker、Playwright、Mock 页面 Provider、资源队列（依赖 F020,F011）
+- [x] F021 Browser Worker、Playwright、Mock 页面 Provider、资源队列（依赖 F020,F011）— DONE
+  - Dependencies: F020（DONE）, F011（DONE）
+  - Implementation files:
+    - packages/browser-worker/src/resource-queue.ts（有界资源队列：maxConcurrent 同步占槽（tryPromote 在提交时/完成时把空闲槽发给最早等待者——占槽计数同步递增，杜绝微任务时序双重挤占最后一个槽）、FIFO 启动顺序、maxPending 满则提交即拒 ResourceQueueFull（点名容量）、任务错误只拒自己的调用方且槽位必释放、awaitIdle 空闲信号（F024 浏览器背压的挂点））
+    - packages/browser-worker/src/page-provider.ts（PageProvider SPI + MockPageProvider：fixtures 确定性本地 HTML 经 page.setContent 直注——无导航无网络无时序竞态；缺 fixture 报错只点名名字不回显页面内容；真实平台 URL Provider 属 F032+ 授权红线）
+    - packages/browser-worker/src/browser-worker.ts（PlaywrightBrowserWorker：懒启动共享 chromium（headless 默认 true）、每任务独立 context（崩溃/状态隔离）、teardown 在 finally 且吞掉 close 失败——不遮蔽任务错误不卡队列槽；TaskContext 携带 page/provider/workerId/taskId；stop 幂等且之后可按需重启；browserAvailable() 探针=浏览器二进制缺失时测试跳过（同 Rust DB 测试 skip 模式，CI 不装浏览器））
+    - packages/browser-worker/src/index.ts（占位符替换为真实导出；F002 的 createBrowserWorker 占位实现与其测试删除）
+    - packages/browser-worker/src/resource-queue.test.ts（6 条纯测试：非法参数 RangeError、bound 内峰值≤2 且 5 任务全数完成、FIFO 启动顺序（阻塞首任务时后两者不启动）、失败任务只拒自己且队列可用、maxPending 滠绝、空队列 awaitIdle 即刻返回）
+    - packages/browser-worker/src/browser.test.ts（6 条真 chromium 测试：fixture 注入后 textContent 断言、缺 fixture 报错点名、TaskContext 身份/Provider 名逐项、4 任务 bound=2 峰值不越且结果有序、失败任务不毒化 worker（后续任务换新 context 成功）、stop 幂等且重启可用）
+  - Commands and actual results:
+    - packages/browser-worker 内：pnpm run lint 零错误；pnpm run test 12 passed / 0 failed（真 chromium）；pnpm run build 通过（@types/node + tsconfig types:["node"] 修复 node:fs 类型）
+    - 仓库根：pnpm install（lockfile 更新 @types/node）后 pnpm run lint / test / build 全通过（console 包不受影响）
+    - Rust 门禁本轮未动（F020 后无 Rust 改动），上一轮 253 passed / 0 failed 基线仍有效
+  - Limitations / BLOCKED reasons:
+    - 控制面注册（F020 的签名 ServiceIdentity 信封）待 F025 REST 传输落地才有对端，本任务是 worker 壳+调度面
+    - 浏览器二进制 CI 不安装：浏览器测试在无 chromium 环境整体跳过（本地已验证全跑）；如需 CI 全跑需加 playwright install 步骤（属 CI 配置变更，待用户令）
+    - Page Object 操作、前后条件、结果证据（截图/DOM 快照）归 F023；本任务的 run() 返回值即结果通道
+    - 队列只限并发数不做优先级/公平权重：F024 背压如需分级再扩
+    - 进程内单例浏览器；多浏览器池（多版本并存）归 F028 灰度面
+  - Commit: 1f0861b
 - [ ] F022 Profile Manager、独占锁、存储、备份/恢复、销毁；T11/T12（依赖 F021,F008,F012）
 - [ ] F023 Page Object 操作、前后条件和结果证据；T08（依赖 F021,F014）
 - [ ] F024 双引擎路由接入、按能力降级、浏览器背压；T09/T25（依赖 F021,F016,F022）

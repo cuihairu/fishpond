@@ -1,0 +1,42 @@
+# Deploy
+
+F029 deployment face: PostgreSQL + one-shot `migrate` job + read-only
+`doctor` check, with every credential as a compose file-secret. The
+long-running app services (`fishpond-server`, `fishpond-worker`) join
+this stack in a later task, when their binaries ship in the image.
+
+## One-time setup
+
+Create the secret files (they are git-ignored; `secrets/.gitignore`
+keeps them out of version control):
+
+```sh
+cd deploy
+mkdir -p secrets
+
+# Database password.
+openssl rand -base64 24 > secrets/postgres_password.txt
+
+# Full database URL — the password must match the file above. The URL
+# is mounted as a secret and resolved via FISHPOND_DATABASE_URL_FILE;
+# it never appears in environment variables, logs or CLI output.
+printf 'postgres://fishpond:%s@postgres:5432/fishpond' "$(cat secrets/postgres_password.txt)" \
+  > secrets/database_url.txt
+```
+
+## Run
+
+```sh
+docker compose -f deploy/docker-compose.yml up --build
+```
+
+Startup order is enforced by conditions, not by sleep:
+
+1. `postgres` — healthy when `pg_isready` passes.
+2. `migrate` — applies pending migrations (idempotent, exit 0).
+3. `doctor` — read-only checks: URL source named, `SELECT 1`
+   round-trip, every embedded migration applied. Exit 0 healthy,
+   1 unhealthy, 2 usage error.
+
+`migrate` and `doctor` are one-shot (`restart: "no"`); to re-check a
+running stack: `docker compose -f deploy/docker-compose.yml run --rm doctor`.

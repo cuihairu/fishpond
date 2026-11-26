@@ -17,6 +17,7 @@ use fishpond_domain::{
     Account, AccountId, AccountState, Conversation, ConversationId, Message, MessageDirection,
     Product, ProductId, ProductStatus, TenantId, UnixMillis,
 };
+use sqlx::migrate::Migrate;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
@@ -50,20 +51,55 @@ impl Store {
     /// bounded acquisition timeout, then runs the embedded migrations
     /// (idempotent: already-applied versions are skipped).
     pub async fn connect(url: &str) -> StorageResult<Self> {
+        let store = Self::connect_unmigrated(url).await?;
+        store.run_migrations().await?;
+        Ok(store)
+    }
+
+    /// Connects without running migrations — for read-only health
+    /// checks (doctor) that must not mutate the schema.
+    pub async fn connect_unmigrated(url: &str) -> StorageResult<Self> {
         let pool = PgPoolOptions::new()
             .max_connections(5)
             .acquire_timeout(std::time::Duration::from_secs(5))
             .connect(url)
             .await?;
-        let store = Self { pool };
-        store.run_migrations().await?;
-        Ok(store)
+        Ok(Self { pool })
     }
 
-    /// Runs pending migrations; safe to call repeatedly.
-    pub async fn run_migrations(&self) -> StorageResult<()> {
+    /// Runs pending migrations; safe to call repeatedly. Returns how
+    /// many migrations this call applied.
+    pub async fn run_migrations(&self) -> StorageResult<usize> {
+        let before = self.applied_count().await?;
         MIGRATIONS.run(&self.pool).await?;
+        let after = self.applied_count().await?;
+        Ok(after.saturating_sub(before))
+    }
+
+    /// Round-trips the database (`SELECT 1`) so lazy pools prove
+    /// connectivity.
+    pub async fn ping(&self) -> StorageResult<()> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
         Ok(())
+    }
+
+    /// Whether every embedded migration is applied — true when nothing
+    /// is pending.
+    pub async fn schema_current(&self) -> StorageResult<bool> {
+        let mut conn = self.pool.acquire().await?;
+        let applied = conn.list_applied_migrations().await?;
+        Ok(MIGRATIONS.iter().all(|embedded| {
+            applied
+                .iter()
+                .any(|applied| applied.version == embedded.version)
+        }))
+    }
+
+    /// How many migrations the `_sqlx_migrations` table records.
+    async fn applied_count(&self) -> StorageResult<usize> {
+        let mut conn = self.pool.acquire().await?;
+        let applied = conn.list_applied_migrations().await?;
+        Ok(applied.len())
     }
 
     /// The underlying pool.

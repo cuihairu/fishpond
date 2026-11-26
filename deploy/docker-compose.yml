@@ -1,0 +1,73 @@
+# fishpond local/deployment stack (F029): PostgreSQL, the one-shot
+# `fishpond migrate` job and the read-only `fishpond doctor` check.
+# Secrets are compose file-secrets (never environment variables):
+#   deploy/secrets/postgres_password.txt  — the database password
+#   deploy/secrets/database_url.txt       — the full database URL
+# The URL is resolved through FISHPOND_DATABASE_URL_FILE, so no
+# credential ever lands in `docker inspect` output or logs.
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: fishpond
+      POSTGRES_DB: fishpond
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fishpond -d fishpond"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  migrate:
+    image: fishpond:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["migrate"]
+    environment:
+      FISHPOND_DATABASE_URL_FILE: /run/secrets/database_url
+    secrets:
+      - database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  doctor:
+    image: fishpond:local
+    command: ["doctor"]
+    environment:
+      FISHPOND_DATABASE_URL_FILE: /run/secrets/database_url
+    secrets:
+      - database_url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # The long-running app services join once their binaries exist in this
+  # image (server entry point is a later task; its GET /healthz route is
+  # already implemented). Shape, for then:
+  #
+  #   server:
+  #     image: fishpond:local
+  #     command: ["serve"]
+  #     environment: { FISHPOND_DATABASE_URL_FILE: /run/secrets/database_url }
+  #     secrets: [database_url]
+  #     ports: ["8080:8080"]
+  #     healthcheck: { test: ["CMD", "fishpond", "curl-healthz"], ... }
+  #     depends_on: { migrate: { condition: service_completed_successfully } }
+
+volumes:
+  pgdata:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  database_url:
+    file: ./secrets/database_url.txt

@@ -15,3 +15,8 @@ workspace = true
 
 [dependencies]
 fishpond-mcp = { path = "../mcp" }
+fishpond-storage = { path = "../storage" }
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

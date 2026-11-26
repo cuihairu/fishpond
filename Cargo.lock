@@ -518,6 +518,8 @@ name = "fishpond-cli"
 version = "0.1.0"
 dependencies = [
  "fishpond-mcp",
+ "fishpond-storage",
+ "tokio",
 ]
 
 [[package]]

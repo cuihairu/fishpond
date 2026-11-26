@@ -1,0 +1,109 @@
+# fishpond multi-node deployment stack (F037): the F029 base face
+# (PostgreSQL + one-shot `migrate` + read-only `doctor`) plus the
+# worker-node fleet. Every node shares ONE database — placement,
+# leases and drain are coordinated through it (F012/F013), so nodes
+# need no network between them. Each node's browser profiles live on
+# a node-local volume and never travel between hosts implicitly;
+# moving one is the F037 `ProfileManager::migrate` flow (verified
+# snapshot, row swap, rollback artifact).
+#
+# Node identity is the worker name (`--name node-N`): the operator
+# face `fishpond`-side drain (`Scheduler::drain_node`) drains every
+# worker registered under that name, tenant-scoped.
+#
+# Secrets are the same file-secrets as the base stack (never
+# environment variables):
+#   deploy/secrets/postgres_password.txt  — the database password
+#   deploy/secrets/database_url.txt       — the full database URL
+#
+# Note: the `worker` command joins the fishpond binary once the
+# worker entry point ships (the engine-face task); today the binary
+# is a stub and the worker services exit immediately after start.
+
+x-worker: &worker
+  image: fishpond:local
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  environment:
+    FISHPOND_DATABASE_URL_FILE: /run/secrets/database_url
+  secrets:
+    - database_url
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: fishpond
+      POSTGRES_DB: fishpond
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fishpond -d fishpond"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  migrate:
+    image: fishpond:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["migrate"]
+    environment:
+      FISHPOND_DATABASE_URL_FILE: /run/secrets/database_url
+    secrets:
+      - database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  doctor:
+    image: fishpond:local
+    command: ["doctor"]
+    environment:
+      FISHPOND_DATABASE_URL_FILE: /run/secrets/database_url
+    secrets:
+      - database_url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  worker-node-1:
+    <<: *worker
+    command: ["worker", "--name", "node-1"]
+    volumes:
+      - profiles-node-1:/var/lib/fishpond/profiles
+
+  worker-node-2:
+    <<: *worker
+    command: ["worker", "--name", "node-2"]
+    volumes:
+      - profiles-node-2:/var/lib/fishpond/profiles
+
+  worker-node-3:
+    <<: *worker
+    command: ["worker", "--name", "node-3"]
+    volumes:
+      - profiles-node-3:/var/lib/fishpond/profiles
+
+volumes:
+  pgdata:
+  profiles-node-1:
+  profiles-node-2:
+  profiles-node-3:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  database_url:
+    file: ./secrets/database_url.txt

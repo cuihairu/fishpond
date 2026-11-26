@@ -40,3 +40,31 @@ Startup order is enforced by conditions, not by sleep:
 
 `migrate` and `doctor` are one-shot (`restart: "no"`); to re-check a
 running stack: `docker compose -f deploy/docker-compose.yml run --rm doctor`.
+
+## Multi-node topology (F037)
+
+`docker-compose.multi.yml` is the fleet variant: the same base face
+(postgres + `migrate` + `doctor`) plus N worker services — every node
+shares ONE database, so placement, leases and drain coordinate through
+it and nodes need no network between each other. Each node mounts its
+own profile volume (`profiles-node-N`): browser profiles are
+node-local and never travel implicitly — moving one between nodes is
+the F037 secure migration flow (`ProfileManager::migrate`: verified
+snapshot, byte-checked destination copy, then the row swap, rollback
+artifact kept under the backup root).
+
+Node identity is the worker **name** (`command: ["worker", "--name",
+"node-N"]`; one host may run several worker processes under one name).
+The operator face for taking a machine down is the node drain:
+every worker registered under that name drains together (marked
+draining first, so migrations never land on a not-yet-drained
+sibling), its live leases migrate to surviving nodes, and an unknown
+or foreign-tenant name is refused rather than silently draining
+nothing. The drain is idempotent — a second pass reports what was
+already draining and moves nothing.
+
+Worker services join the stack once the `worker` entry point ships in
+the image (the engine-face task); today the binary is a stub, so the
+worker services exit right after start. The same credential rules as
+the base stack apply: secrets are compose file-secrets, never
+environment variables, never logs.

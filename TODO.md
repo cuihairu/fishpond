@@ -536,7 +536,29 @@
     - doctor 的 database_reachable 只证明连通，不判定角色/延迟阈值；pg_isready 只证明 postgres 可接受连接
     - 本机未跑 `docker compose up` 全栈（验证止于 compose config 语义校验）；全栈拉起验收归 F031 的集成测试面
   - Commit: fc2f80e
-- [ ] F030 tracing、指标、队列深度、资源告警；脱敏扫描（依赖 F010,F014,F017）
+- [x] F030 tracing、指标、队列深度、资源告警；脱敏扫描（依赖 F010,F014,F017）
+  - Dependencies: F010, F014, F017
+  - Implementation files:
+    - crates/telemetry/（新 crate，观测面）— lib.rs（服务缝定位：只依赖 domain/storage/runtime/monitor，禁 server/worker/cli）、redact.rs（脱敏扫描）、metrics.rs（指标注册表）、depth.rs（队列深度）、alerts.rs（资源告警）、trace.rs（tracing 初始化）
+    - crates/telemetry/src/redact.rs — 两层防线：已知密钥字面替换（***）+ 形状扫描（URL userinfo、bearer 令牌、password=/token=/api_key= 等键值、≥32 位 hex 串）；ScanFinding 只报类别绝不携带位置/内容；sanitize 幂等（二次扫描无发现）；默认配置 ScanConfig{min_hex_len:32}
+    - crates/telemetry/src/metrics.rs — 进程内 MetricsRegistry（Mutex + BTreeMap，canonical key `name{sorted labels}`）；counter 累加/gauge 覆写；**label 值入库前过脱敏扫描**（with_redaction 加已知密钥）；snapshot()/render() 日志安全
+    - crates/telemetry/src/depth.rs — QueueDepthReport：operations 按 state 计数（表内只存 PENDING/RUNNING，backlog=全和）、in_flight/overdue attempts、consumer_lag（head-checkpoint）；MailboxDepthSample + mailbox_sample() 桥（从 fishpond_runtime::MailboxSender 读 occupancy/capacity）
+    - crates/storage/src/depth.rs（storage 侧只读探针）— operation_state_counts/in_flight_attempts/overdue_attempts/consumer_lag，全部 begin_tenant + RLS 双层隔离
+    - crates/telemetry/src/alerts.rs — AlertThresholds（保守默认）+ evaluate(report, mailboxes, thresholds) 纯求值 → RaisedAlert（rule/severity/稳定 incident_id `queue-{rule}[-{subject}]`/secret-free detail）；draft(tenant) 直接产出 monitor IncidentDraft，重复求值同一问题在 IncidentLog 幂等
+    - crates/telemetry/src/trace.rs — init_tracing(default_filter)：RUST_LOG 或默认 EnvFilter，try_init 幂等（二次调用保首个 subscriber）
+    - Cargo.toml / scripts/check_workspace.py — 新成员 crates/telemetry（§3.2 集合扩为 16），新增 F030 层级规则：telemetry 禁依赖 server/worker/cli
+  - Commands and actual results:
+    - `cargo test -p fishpond-telemetry`（FISHPOND_TEST_DATABASE_URL 真库）→ 21 单元（redact 9 + metrics 4 + alerts 5 + depth 2 + trace 1）+ f030_depth 4 条 DB 门控（collect 语义/租户隔离/告警开 incident 幂等回放/空租户安静）= 25 全绿
+    - `cargo clippy --workspace --all-targets -- -D warnings` 默认与 1.88 各一遍 → 零警告；`cargo fmt` 通过
+    - `cargo test --workspace`（真库）→ 78 套件全 ok、346 passed、0 failed（321 → +25）
+    - `python3 scripts/check_workspace.py` → workspace structure ok: 16 members, layering rules satisfied
+    - 过程记录：首版 mask_key_values 用 while 重写会死循环（`***` 掩码再次命中键值模式，DB 测试挂起被手工终止）——已改单趟游标扫描 + `***` 值不作为 finding + 回归测试 every_occurrence_is_masked_and_masks_are_left_alone；DB 测试过期判定用真实时钟，夹具截止时间改为 now±偏移
+  - Limitations / BLOCKED reasons:
+    - 指标是进程内注册表，无 Prometheus/OpenMetrics 出口——导出面（REST /metrics）归控制面任务；snapshot()/render() 是对接缝
+    - tracing 只做 subscriber 初始化与采集点 debug 埋点，热路径 span 覆盖随引擎面任务补
+    - hex 串掩码按 ≥32 位启发式，短密钥（<32 hex）只能靠 with_redaction 已知密钥层；base64 形状未扫（误报率高，先不做）
+    - 队列深度只覆盖持久队列 + supervisor mailbox 采样；worker 侧 in-memory 队列深度未接（worker 接线归后续）
+  - Commit: 88a9957
 - [ ] F031 security/integration/chaos 测试和 1,000 Mock 会话初测（依赖 F026,F029,F030）
 
 ## M3（F032–F038）：真实授权能力逐项验收、Console、SDK、多节点

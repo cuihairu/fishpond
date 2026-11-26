@@ -696,7 +696,23 @@
     - delete_account 不删除观测史（0014 已放开 FK，观测史=人工审计）；account.deleted 事件=机器审计标记
     - browser-worker vitest 存在既有 teardown 竞态 flake（Playwright page closed unhandled rejection；测试本身全过，与本任务无关）
   - Commit: 83e52fd（A：级联删除+保留清扫）, 43a3139（chore gitignore）, 1f734e6（B：REST DELETE+SDK）, 6df8bce（C：凭据撤销+SDK）, b14dc12（D：CLI purge）
-- [ ] F041 发布 RC：SBOM、许可证、漏洞、性能、能力矩阵、回滚文档（依赖 F039,F040）— IN_PROGRESS（npm 漏洞已修 8880c27，SBOM+audit 政策已落 12e8dbb；性能/能力矩阵/回滚文档进行中）
+- [x] F041 发布 RC：SBOM、许可证、漏洞、性能、能力矩阵、回滚文档（依赖 F039,F040）— DONE（2026-11-27）
+  - Dependencies: F039,F040（均 DONE）
+  - Implementation files: pnpm-workspace.yaml(+overrides)+pnpm-lock.yaml（增量 A）；deny.toml, sbom/*.cdx.json×16, scripts/sbom.sh（增量 B/C）；docs/performance.md（增量 D）；docs/capability-matrix.md, docs/rollback.md（增量 E）
+  - Commands and actual results:
+    - `pnpm -r run lint && pnpm -r run test && pnpm -r run build` → 全绿（overrides 生效后）
+    - `pnpm why glob / minimatch` → glob@14.0.6（唯一）、minimatch@11.0.9（唯一）——Dependabot 两条 moderate（#8 minimatch ≥7<11.0.1、#7 glob ≥9≤14.0.1）的范围全部清除；链路：@vue/test-utils→js-beautify@2.0.3（已无更版，pnpm 12 的 overrides 键在 pnpm-workspace.yaml，package.json 的 pnpm 字段不再被读）
+    - `cargo deny check advisories licenses` → advisories ok + licenses ok；两条带日期理由的 ignore：RUSTSEC-2026-0459（libsqlite3-sys）、RUSTSEC-2023-0071（rsa）——sqlx 0.8 的 macros 特性（`sqlx::migrate!` 必需）无条件拖入未用 sqlite/mysql 引擎；实测去 macros 会编译失败（migrate 找不到），动它=改 F029 DONE 任务依赖（红线禁止）
+    - `cargo audit`（advisory-db 经系统 git 克隆本地喂库——cargo-audit 自带 libgit2 在本机 TLS 必挂）→ 同样 2 vulns 全被上述 ignore 覆盖；另有 chrono unmaintained 警告（rmcp/schemars 拖入，非我方可控）
+    - `scripts/sbom.sh` → 16 个 CycloneDX 1.3 SBOM 入 sbom/（fishpond-cli 214 components；抽检无任何 url/凭据；cargo cyclonedx 只写 crate 目录旁，脚本归拢+清残）
+    - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings` → 零警告；`FISHPOND_TEST_DATABASE_URL=… cargo test --workspace` → 全绿 399 测试/96 套
+    - 性能复跑（docs/performance.md）：runtime 1,000 actor 恰一次投递 0.03s；worker 1,000 并发 Mock 发送 0.07s + browser 50 并发踩踏确定性分流；`fishpond soak --sim-hours 72 --tick-ms 30000 --seed 4141` → **真实 261.4s 跑完 72 模拟小时（8,640 tick），violations=0**，assigns=11,615/拒 4,906、migrated=1,433、drains=722、死亡/复活=673/672、ops=5,841/5,841、contested=0
+  - Limitations:
+    - libsqlite3-sys/rsa 仍在依赖图（sqlx 0.8 门面缺陷拖入未用引擎）；待 sqlx 出引擎无关的 macros 特性后移除 ignore 并清依赖——现在删会破坏迁移机制（F029 DONE）
+    - chrono unmaintained 由 rmcp/schemars 传染，无法本仓消除
+    - 性能数字是 debug 构建 + Mock 在环 + 单机库，用途是同方法回归对照而非容量认证；真实上游压测被授权红线挡住
+    - SBOM 是 Cargo.lock 的快照工件，lock 变动后需重跑 scripts/sbom.sh；Dependabot 告警状态以远端重扫为准
+  - Commit: 8880c27（A：npm overrides 修洞）, 12e8dbb（B/C：SBOM+audit 政策）, 3adf426（D/E：性能/能力矩阵/回滚文档）
 
 ## M5（F042–F044）：扩展
 

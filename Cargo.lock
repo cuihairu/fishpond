@@ -629,10 +629,15 @@ dependencies = [
 name = "fishpond-server"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "fishpond-domain",
  "fishpond-runtime",
  "fishpond-storage",
+ "http-body-util",
+ "serde",
+ "serde_json",
  "tokio",
+ "tower",
 ]
 
 [[package]]

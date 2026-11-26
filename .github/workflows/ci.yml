@@ -53,3 +53,28 @@ jobs:
         run: pnpm run test
       - name: Build
         run: pnpm run build
+
+  sdk:
+    name: sdk (regenerate gate + py/go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sdk/go/go.mod
+      - name: Regenerate SDKs and diff against committed
+        run: |
+          python3 scripts/generate_sdk.py \
+            --doc crates/server/tests/fixtures/openapi.json \
+            --ts packages/sdk/src/client.ts \
+            --py sdk/python/fishpond/__init__.py \
+            --go sdk/go/client.go \
+            --gomod sdk/go/go.mod
+          git diff --exit-code
+      - name: Generator tests
+        run: python3 -m unittest discover -s scripts -v
+      - name: Python SDK tests
+        run: python3 -m unittest discover -s sdk/python -v
+      - name: Go SDK tests
+        working-directory: sdk/go
+        run: go test ./...

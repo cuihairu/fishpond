@@ -716,6 +716,19 @@
 
 ## M5（F042–F044）：扩展
 
-- [ ] F042 集群 10,000 模拟会话压测（依赖 F039）— IN_PROGRESS（侦察中）
+- [x] F042 集群 10,000 模拟会话压测（依赖 F039）— DONE（2026-11-27）
+  - Dependencies: F039（DONE）
+  - Implementation files: crates/runtime/tests/f042_cluster.rs（增量 A）; docs/performance.md（§1 十千会话行 + §3b 集群规模包络）（增量 B）
+  - Commands and actual results:
+    - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings` → 零警告；`FISHPOND_TEST_DATABASE_URL=… cargo test --workspace` → 全绿 **401 测试/97 套**（增量前 399/96）
+    - 增量 A：`cargo test -p fishpond-runtime --test f042_cluster` → **10,000 actor × 10 消息 = 100,000 次投递恰一次、零重启**，外加 200 fatal 毒风暴零蔓延（9,800 健康会话零丢失 + fatal 恰 3 条后死亡且永不重启）——两用例 1.12s，纯内存面无库
+    - 增量 B（集群 soak，3 节点 × 4 worker 形状，真库）：10k 账号（capacity 850，10,200 槽位）→ 真实上限 3600s 内 5/60 tick，violations=0，assigns=26,800/拒 3,200；3k 账号（capacity 260）→ 上限 2700s 内 21/60 tick，violations=0，assigns=30,900/拒 3,160、drains/deaths/revives=1/1/1、unassigned=0、contested=0
+    - 规模曲线（docs/performance.md §3b）：每放置链路 1k≈9ms → 3k≈44ms → 10k≈170ms——**放置候选扫描（RLS 求值+顺序扫描）随租约表行数超线性变贵**，是不变量路径（每 tick 一次全量快照 O(1) 查询）之外的实测包络上界；两次大账号 run 被真实时间上限截断且在报告里显式声明（不伪装成完整视界）
+  - Limitations:
+    - 10k/3k 全视界未在本机真实上限内跑完——受放置搜索成本限制；语义是「所有完成的 tick 零违例 + 包络测绘」，不是「72h@10k 全绿」（那个数在优化放置搜索之前不可得，且优化属 F013 既有机制的独立任务）
+    - 大账号 run 的 churn 主要来自 term=2 tick 的续租波（设计如此），非接管风暴；deaths/drains 计数低是因为 tick 次数被上限截断
+    - soak 的 72h 全视界证据在 F039（1k 账号 261s 全绿）；本任务的证据面是集群形状 × 大账号规模
+    - 10k actor 测试是纯内存 supervisor 面，DB 面成本由 soak 承载（两者合起来才是「模拟会话压测」的完整语义）
+  - Commit: 8f61bb7（A：十千会话测试）, 172d694（B：规模包络文档）
 - [ ] F043 HA PostgreSQL 与控制平面多副本演练（依赖 F041）
 - [ ] F044 外部受控 Browser Provider 接入（依赖 F041）

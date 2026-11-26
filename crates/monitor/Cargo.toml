@@ -8,3 +8,13 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+fishpond-provider-sdk = { path = "../provider-sdk" }
+fishpond-storage = { path = "../storage" }
+
+[dev-dependencies]
+async-trait = "0.1"
+fishpond-domain = { path = "../domain" }
+fishpond-provider-mock = { path = "../provider-mock" }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

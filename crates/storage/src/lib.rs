@@ -16,6 +16,7 @@ pub mod credentials;
 pub mod error;
 pub mod events;
 pub mod leases;
+pub mod monitor;
 pub mod observations;
 pub mod operations;
 pub mod profiles;
@@ -35,6 +36,7 @@ pub use credentials::{
 pub use error::{StorageError, StorageResult};
 pub use events::{InboxClaim, InboxDecision, NewEvent};
 pub use leases::AccountLease;
+pub use monitor::{CapabilityOverride, HealthRecord, IncidentRecord, NewIncident};
 pub use observations::{NewObservation, ObservationOutcome, ObservationRecord, ObservationSource};
 pub use operations::{
     AttemptClose, AttemptRecord, ClaimedOperation, CreatedOperation, ExpiredAttempt, NewOperation,

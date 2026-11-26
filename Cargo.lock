@@ -555,6 +555,14 @@ dependencies = [
 [[package]]
 name = "fishpond-monitor"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fishpond-domain",
+ "fishpond-provider-mock",
+ "fishpond-provider-sdk",
+ "fishpond-storage",
+ "tokio",
+]
 
 [[package]]
 name = "fishpond-operations"

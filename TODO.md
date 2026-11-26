@@ -428,7 +428,28 @@
     - SSE 为排水-终局语义（page() 不阻塞等新事件，连到 head 即断），长连 live-tail 推送需事件等待原语，归 F030 观测面再评估
     - 真实平台连接仍红线禁入；全部路由对 Mock 目标可跑
   - Commit: 7a2950b, 425976e, 2561618
-- [ ] F026 Mock 端到端流程：授权→消息→商品→订单→操作→Webhook（依赖 F025）
+- [x] F026 Mock 端到端流程：授权→消息→商品→订单→操作→Webhook（依赖 F025）— DONE（2026-11-27）
+  - Dependencies: F025 ✓(7a2950b,425976e,2561618)
+  - Implementation files: crates/server/tests/f026_mock_flow.rs, crates/server/Cargo.toml（dev-deps：fishpond-provider-mock/provider-sdk/router、async-trait）, Cargo.lock
+    - 一条真库 E2E 串起全链：REST 账号注册 → 会话 start→confirm → CapabilityRouter 路由 mock 平台 provider.authorize（Authorize→accounts:read 门） → store_credential（F008 信封密封，master key 按轮次注册） → REST transition authorize 携 credential_id+version → AUTHORIZED
+    - 消息：router.execute send_message（SendMessage→conversations:write；CallContext::write 幂等键）→ mock 发 message.sent 事件 → 事件重编 store 唯一 id 后 append_events 入日志 → GET /events 页可见
+    - Webhook：发消息前 subscribe（SSRF 过、secret 密封、event_type=message.sent）→ enqueue 扇出恰一投递 → deliver_due + 进程内 RecordingTransport：2xx 交付、F018 签名头在场、body 携带本轮事件
+    - 商品：router.execute list_products（ReadCatalog→catalog:read）→ 种子目录可达（send 前置 authorize 的 ensure_session 语义被 E2E 隐式验证）
+    - 订单：Capability::ManageOrders 对 SCOPE_ALL 全权 key 仍 `RouteError::NotRoutable`——无冻结 scope 的能力对任何 key 不可路由（F016 权限不凭空造）
+    - 操作：REST POST /operations 幂等创建 → claim（RUNNING，attempt 1）→ close succeeded → SUCCEEDED
+    - SSE：Last-Event-ID: 0 重放全日志含本轮 message.sent 帧 + caught-up 终局
+  - Commands and actual results:
+    - `cargo fmt --check` → 通过
+    - `cargo clippy --workspace --all-targets -- -D warnings` → 0 警告（默认工具链与 `rustup run 1.88.0` 双过）
+    - `cargo test -p fishpond-server --test f026_mock_flow` → 1 passed; 0 failed（真实库；连续两轮通过验证重跑幂等）
+    - `cargo test --workspace` → 279 passed; 0 failed（基线 278 + 新增 1）
+    - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members（server 的 provider/router 依赖只在 dev-dependencies，层规则不受影响）
+  - Limitations / BLOCKED reasons:
+    - mock 种子世界固定在 `t-default`/SEED_ACCOUNT：套件幂等 upsert 租户、账号重注册容忍 409、会话/操作/凭证/订阅/事件 id 按轮次唯一（重跑安全已实测两轮）
+    - 事件从 mock 平台日志搬运到 store 时重编唯一 id（平台计数器每进程重启，(tenant,event_id) 主键会撞）——真实 provider 的事件归属投影/收件层（F017 inbox），此处是测试搬运语义
+    - Webhook transport 是进程内记录器：真 HTTP 客户端按红线归 F032+；SSRF/签名/重试/放弃语义已在 F018 全测，此处只验扇出衔接
+    - orders:manage 保持不可路由是设计而非缺口（真实订单面随 F032+ 授权 provider 落地）
+  - Commit: 3620545
 - [ ] F027 Monitor、健康注册、能力禁用、契约异常诊断、incident API（依赖 F016,F004）
 - [ ] F028 Provider manifest/digest、签名校验、版本并存、灰度与回滚；T19（依赖 F027,F020）
 - [ ] F029 Compose、迁移 job、secret mount、健康检查、CLI doctor（依赖 F025,F026）

@@ -629,9 +629,13 @@ dependencies = [
 name = "fishpond-server"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "fishpond-domain",
  "fishpond-events",
+ "fishpond-provider-mock",
+ "fishpond-provider-sdk",
+ "fishpond-router",
  "fishpond-runtime",
  "fishpond-storage",
  "http-body-util",

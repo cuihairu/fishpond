@@ -21,6 +21,10 @@ tokio = { version = "1", default-features = false, features = ["sync", "rt"] }
 tokio-stream = "0.1"
 
 [dev-dependencies]
+async-trait = "0.1"
+fishpond-provider-mock = { path = "../provider-mock" }
+fishpond-provider-sdk = { path = "../provider-sdk" }
+fishpond-router = { path = "../router" }
 http-body-util = "0.1"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
 tower = { version = "0.5", features = ["util"] }

@@ -18,8 +18,11 @@
 //! [`Scheduler::take_over_lost`] is the same migration driven by
 //! liveness: workers whose heartbeat crossed the staleness cutoff
 //! (`Store::lost_workers`) have their live terms force-expired and
-//! reassigned. Both flows report what moved, what was contested by a
-//! racing holder, and what could not be placed (no eligible worker).
+//! reassigned. [`Scheduler::drain_node`] (F037) lifts drain to the
+//! deployment node: one host may run several workers under one name,
+//! and the operator drains them in one call, tenant-scoped. All flows
+//! report what moved, what was contested by a racing holder, and what
+//! could not be placed (no eligible worker).
 
 use fishpond_domain::{AccountId, TenantId, UnixMillis, WorkerId};
 use fishpond_storage::{AccountLease, StorageError, Store, WorkerRecord};
@@ -37,6 +40,15 @@ pub enum SchedulerError {
         /// The account that could not be placed.
         account: AccountId,
     },
+    /// No worker of this tenant is registered under the node name —
+    /// either the name is a typo or the node belongs to another
+    /// tenant. Never a silent success over nothing.
+    UnknownNode {
+        /// Owning tenant.
+        tenant: TenantId,
+        /// The node name that matched nothing.
+        node: String,
+    },
     /// The storage CAS or repository failed.
     Storage(StorageError),
 }
@@ -50,6 +62,12 @@ impl std::fmt::Display for SchedulerError {
                     "no eligible worker for account {account} in tenant {tenant}"
                 )
             }
+            Self::UnknownNode { tenant, node } => {
+                write!(
+                    f,
+                    "no workers registered for node {node} in tenant {tenant}"
+                )
+            }
             Self::Storage(err) => write!(f, "storage: {err}"),
         }
     }
@@ -59,7 +77,7 @@ impl std::error::Error for SchedulerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Storage(err) => Some(err),
-            Self::NoEligibleWorker { .. } => None,
+            Self::NoEligibleWorker { .. } | Self::UnknownNode { .. } => None,
         }
     }
 }
@@ -118,6 +136,21 @@ pub struct DrainReport {
 pub struct TakeoverReport {
     /// The per-account outcome.
     pub migration: MigrationReport,
+}
+
+/// What [`Scheduler::drain_node`] did across the node's workers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeDrainReport {
+    /// The node name that was drained.
+    pub node: String,
+    /// The tenant's workers registered under that name — every one of
+    /// them drained.
+    pub workers: Vec<WorkerId>,
+    /// The per-account outcome across the whole node.
+    pub migration: MigrationReport,
+    /// How many members were already draining before this call (drain
+    /// is idempotent per worker).
+    pub already_draining: usize,
 }
 
 /// The capacity- and affinity-aware scheduler.
@@ -186,14 +219,80 @@ impl Scheduler {
         term_ms: i64,
         at: UnixMillis,
     ) -> SchedulerResult<DrainReport> {
-        let current = self.store.get_worker(tenant, worker).await?;
-        let already_draining = current.draining;
-        if !already_draining {
-            self.store.drain_worker(tenant, worker, at).await?;
-        }
+        let already_draining = self.drain_mark(tenant, worker, at).await?;
         let accounts = self.live_accounts_of(tenant, worker, at).await?;
         let migration = self.migrate_off(tenant, &accounts, term_ms, at).await;
         Ok(DrainReport {
+            migration,
+            already_draining,
+        })
+    }
+
+    /// Marks `worker` draining unless it already is (idempotent);
+    /// returns whether it was already draining before this call.
+    async fn drain_mark(
+        &self,
+        tenant: &TenantId,
+        worker: &WorkerId,
+        at: UnixMillis,
+    ) -> SchedulerResult<bool> {
+        let current = self.store.get_worker(tenant, worker).await?;
+        if !current.draining {
+            self.store.drain_worker(tenant, worker, at).await?;
+        }
+        Ok(current.draining)
+    }
+
+    /// Drains a deployment node (F037): every worker of the tenant
+    /// registered under `node` (one host runs several worker
+    /// processes) goes away together. Every member is marked draining
+    /// *first* — placement then refuses the whole node before any
+    /// migration runs, so an account leaving one member can never land
+    /// on a not-yet-drained sibling of the same machine. A name that
+    /// matches no worker of this tenant is
+    /// [`SchedulerError::UnknownNode`] — the lookup is tenant-scoped,
+    /// so another tenant's same-named host is invisible and an
+    /// operator typo cannot silently drain nothing.
+    pub async fn drain_node(
+        &self,
+        tenant: &TenantId,
+        node: &str,
+        term_ms: i64,
+        at: UnixMillis,
+    ) -> SchedulerResult<NodeDrainReport> {
+        let members: Vec<WorkerId> = self
+            .store
+            .list_workers(tenant)
+            .await?
+            .into_iter()
+            .filter(|worker| worker.name == node)
+            .map(|worker| worker.id)
+            .collect();
+        if members.is_empty() {
+            return Err(SchedulerError::UnknownNode {
+                tenant: tenant.clone(),
+                node: node.to_owned(),
+            });
+        }
+        let mut already_draining = 0usize;
+        for worker in &members {
+            if self.drain_mark(tenant, worker, at).await? {
+                already_draining += 1;
+            }
+        }
+        let mut migration = MigrationReport {
+            sources: members.clone(),
+            moved: Vec::new(),
+            contested: Vec::new(),
+            unassigned: Vec::new(),
+        };
+        for worker in &members {
+            let accounts = self.live_accounts_of(tenant, worker, at).await?;
+            migration.merge(self.migrate_off(tenant, &accounts, term_ms, at).await);
+        }
+        Ok(NodeDrainReport {
+            node: node.to_owned(),
+            workers: members,
             migration,
             already_draining,
         })

@@ -642,7 +642,7 @@
     - Problem schema 为手写规范形状（TS interface/Go struct），生成循环跳过该名避免重复声明
     - 未消费真实网络（红线）：全部客户端仅按 Mock 契约测试；Go/PY SDK 未做发布打包（不建 Release，红线）
   - Commit: 5b2872d, 1625075, a215bb5, 68c2a7a, b433afc
-- [ ] F037 多节点部署、Profile 安全迁移、租户隔离、节点 drain（依赖 F013,F024,F029）
+- [ ] F037 多节点部署、Profile 安全迁移、租户隔离、节点 drain（依赖 F013,F024,F029）— IN_PROGRESS（增量 A：节点 drain）
 - [ ] F038 授权测试环境 Provider 灰度、契约回归与故障 runbook（依赖 F028,F030,F032,F033）
 
 ## M4（F039–F041）：稳定性和发布

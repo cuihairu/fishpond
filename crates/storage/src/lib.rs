@@ -18,6 +18,7 @@ pub mod events;
 pub mod leases;
 pub mod observations;
 pub mod operations;
+pub mod profiles;
 pub mod sessions;
 pub mod store;
 pub mod webhooks;
@@ -38,6 +39,7 @@ pub use observations::{NewObservation, ObservationOutcome, ObservationRecord, Ob
 pub use operations::{
     AttemptClose, AttemptRecord, ClaimedOperation, CreatedOperation, ExpiredAttempt, NewOperation,
 };
+pub use profiles::{NewProfile, ProfileLock, ProfileRecord, ProfileState};
 pub use sessions::{AuthSessionRecord, AuthSessionUpdate, NewAuthSession};
 pub use store::{Store, TenantRecord};
 pub use webhooks::{

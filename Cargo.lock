@@ -656,6 +656,8 @@ version = "0.1.0"
 dependencies = [
  "fishpond-domain",
  "fishpond-storage",
+ "serde_json",
+ "sha2 0.10.9",
  "tokio",
 ]
 

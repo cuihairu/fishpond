@@ -491,10 +491,14 @@ version = "0.1.0"
 name = "fishpond-events"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "fishpond-domain",
  "fishpond-storage",
+ "hmac",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
+ "url",
 ]
 
 [[package]]

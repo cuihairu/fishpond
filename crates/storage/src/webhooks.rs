@@ -328,7 +328,9 @@ impl Store {
         cipher.open(&sealed)
     }
 
-    /// Queues one delivery.
+    /// Queues one delivery. Fan-out is idempotent per delivery id:
+    /// re-enqueuing the same (subscription, event) pair returns the
+    /// stored row instead of duplicating it.
     pub async fn insert_delivery(&self, d: &NewDelivery<'_>) -> StorageResult<DeliveryRecord> {
         if d.body.trim().is_empty() {
             return Err(StorageError::Invalid {
@@ -337,12 +339,12 @@ impl Store {
             });
         }
         let mut tx = self.begin_tenant(d.tenant).await?;
-        let row = sqlx::query(
+        sqlx::query(
             "INSERT INTO webhook_deliveries
                 (id, tenant_id, subscription_id, event_id, event_seq, body,
                  attempts, status, next_attempt_at, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, 0, 'pending', $7, $7, $7)
-             RETURNING *",
+             ON CONFLICT (tenant_id, id) DO NOTHING",
         )
         .bind(d.id)
         .bind(d.tenant.as_str())
@@ -356,8 +358,29 @@ impl Store {
         )
         .bind(d.body)
         .bind(d.at.as_millis())
-        .fetch_one(&mut *tx)
+        .execute(&mut *tx)
         .await?;
+        let row = sqlx::query("SELECT * FROM webhook_deliveries WHERE id = $2")
+            .bind(d.tenant.as_str())
+            .bind(d.id)
+            .fetch_one(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        map_delivery(&row)
+    }
+
+    /// Fetches one delivery by id.
+    pub async fn get_delivery(&self, tenant: &TenantId, id: &str) -> StorageResult<DeliveryRecord> {
+        let mut tx = self.begin_tenant(tenant).await?;
+        let row = sqlx::query("SELECT * FROM webhook_deliveries WHERE id = $2")
+            .bind(tenant.as_str())
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| StorageError::NotFound {
+                what: "webhook delivery",
+                id: id.to_owned(),
+            })?;
         tx.commit().await?;
         map_delivery(&row)
     }

@@ -25,6 +25,17 @@
 //! Like the rest of the platform, every surface is tenant-bound and
 //! deterministic: no clock reads, no ambient state.
 
+mod sign;
+mod ssrf;
+mod webhooks;
+
+pub use sign::{SIGNATURE_HEADER, VerifyError, signature_header, verify_header};
+pub use ssrf::{EndpointError, validate_endpoint};
+pub use webhooks::{
+    DeliveryReport, MAX_ATTEMPTS, TransportOutcome, WebhookService, WebhookTransport,
+    retry_delay_ms,
+};
+
 use fishpond_domain::{EventEnvelope, EventId, EventPayload, TenantId, UnixMillis};
 use fishpond_storage::{InboxClaim, InboxDecision, NewEvent, StorageError, StorageResult, Store};
 

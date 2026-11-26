@@ -38,7 +38,7 @@
         "properties": {
           "accounts": {
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Account"
             },
             "type": "array"
           }
@@ -206,11 +206,42 @@
         ],
         "type": "object"
       },
+      "Event": {
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "occurred_at": {
+            "description": "unix ms",
+            "type": "integer"
+          },
+          "payload": {
+            "description": "event-specific JSON payload"
+          },
+          "seq": {
+            "description": "log position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "event_type",
+          "occurred_at"
+        ],
+        "type": "object"
+      },
       "EventPage": {
         "properties": {
           "events": {
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Event"
             },
             "type": "array"
           },
@@ -224,6 +255,75 @@
         "required": [
           "events",
           "next_cursor"
+        ],
+        "type": "object"
+      },
+      "Grant": {
+        "properties": {
+          "created_at": {
+            "description": "unix ms",
+            "type": "integer"
+          },
+          "expires_at": {
+            "description": "unix ms",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "revoked_at": {
+            "description": "unix ms, when revoked",
+            "type": "integer"
+          },
+          "token_hint": {
+            "description": "display tail of the hashed token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "operator",
+          "token_hint",
+          "created_at",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "GrantIssued": {
+        "properties": {
+          "expires_at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "grant_id": {
+            "type": "string"
+          },
+          "token": {
+            "description": "Raw token; store it now — the server only holds a hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_id",
+          "token",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "GrantList": {
+        "properties": {
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/Grant"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "grants"
         ],
         "type": "object"
       },
@@ -287,7 +387,7 @@
           },
           "operations": {
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/Operation"
             },
             "type": "array"
           }
@@ -336,6 +436,17 @@
         ],
         "type": "object"
       },
+      "ReleaseResult": {
+        "properties": {
+          "released": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "released"
+        ],
+        "type": "object"
+      },
       "SessionPage": {
         "properties": {
           "next_cursor": {
@@ -346,7 +457,7 @@
           },
           "sessions": {
             "items": {
-              "type": "object"
+              "$ref": "#/components/schemas/AuthSession"
             },
             "type": "array"
           }
@@ -391,6 +502,22 @@
         ],
         "type": "object"
       },
+      "StartTakeover": {
+        "properties": {
+          "operator": {
+            "description": "Who the credential is for (audit display)",
+            "type": "string"
+          },
+          "ttl_ms": {
+            "description": "Requested life in ms; defaults to the service cap",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operator"
+        ],
+        "type": "object"
+      },
       "StatusSummary": {
         "properties": {
           "disabled": {
@@ -415,6 +542,38 @@
           "unknown",
           "disabled",
           "total"
+        ],
+        "type": "object"
+      },
+      "TakeoverContext": {
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "grant_id": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_id",
+          "tenant",
+          "account",
+          "session",
+          "operator",
+          "expires_at"
         ],
         "type": "object"
       },
@@ -1397,18 +1556,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "grants": {
-                      "items": {
-                        "type": "object"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "grants"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/GrantList"
                 }
               }
             },
@@ -1459,20 +1607,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "properties": {
-                  "operator": {
-                    "description": "Who the credential is for (audit display)",
-                    "type": "string"
-                  },
-                  "ttl_ms": {
-                    "description": "Requested life in ms; defaults to the service cap",
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "operator"
-                ],
-                "type": "object"
+                "$ref": "#/components/schemas/StartTakeover"
               }
             }
           },
@@ -1483,25 +1618,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "expires_at": {
-                      "format": "int64",
-                      "type": "integer"
-                    },
-                    "grant_id": {
-                      "type": "string"
-                    },
-                    "token": {
-                      "description": "Raw token; store it now — the server only holds a hash",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "grant_id",
-                    "token",
-                    "expires_at"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/GrantIssued"
                 }
               }
             },
@@ -1583,15 +1700,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "released": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "released"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/ReleaseResult"
                 }
               }
             },
@@ -1742,36 +1851,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "account": {
-                      "type": "string"
-                    },
-                    "expires_at": {
-                      "format": "int64",
-                      "type": "integer"
-                    },
-                    "grant_id": {
-                      "type": "string"
-                    },
-                    "operator": {
-                      "type": "string"
-                    },
-                    "session": {
-                      "type": "string"
-                    },
-                    "tenant": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "grant_id",
-                    "tenant",
-                    "account",
-                    "session",
-                    "operator",
-                    "expires_at"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/TakeoverContext"
                 }
               }
             },

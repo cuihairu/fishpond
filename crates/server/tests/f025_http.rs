@@ -141,6 +141,31 @@ async fn openapi_document_is_served_and_contract_frozen() {
         .expect("X-Takeover-Token parameter documented");
     assert_eq!(header["in"], "header");
     assert_eq!(header["required"], true);
+    // SDKs (F036) are generated from the named schemas: the page
+    // items must be typed, not bare objects.
+    for schema in [
+        "Account",
+        "AuthSession",
+        "Event",
+        "Operation",
+        "Grant",
+        "GrantIssued",
+        "GrantList",
+        "TakeoverContext",
+    ] {
+        assert!(
+            doc["components"]["schemas"].get(schema).is_some(),
+            "schema {schema} missing from the document"
+        );
+    }
+    assert_eq!(
+        doc["components"]["schemas"]["SessionPage"]["properties"]["sessions"]["items"]["$ref"],
+        "#/components/schemas/AuthSession"
+    );
+    assert_eq!(
+        doc["components"]["schemas"]["EventPage"]["properties"]["events"]["items"]["$ref"],
+        "#/components/schemas/Event"
+    );
     assert_eq!(
         doc["components"]["schemas"]["Problem"]["properties"]["status"]["type"],
         "integer"

@@ -17,10 +17,12 @@ fn rendered() -> String {
 #[test]
 fn openapi_fixture_matches_the_served_document() {
     let path = Path::new(FIXTURE);
-    let committed = fs::read_to_string(path)
-        .unwrap_or_else(|err| panic!("fixture {FIXTURE} missing ({err}); run the ignored regenerate_fixture test"));
+    let committed = fs::read_to_string(path).unwrap_or_else(|err| {
+        panic!("fixture {FIXTURE} missing ({err}); run the ignored regenerate_fixture test")
+    });
     assert_eq!(
-        committed, rendered(),
+        committed,
+        rendered(),
         "fixture drifted from document(); regenerate with: cargo test -p fishpond-server --test f036_openapi_fixture regenerate_fixture -- --ignored"
     );
 }

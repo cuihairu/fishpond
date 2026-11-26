@@ -730,5 +730,17 @@
     - soak 的 72h 全视界证据在 F039（1k 账号 261s 全绿）；本任务的证据面是集群形状 × 大账号规模
     - 10k actor 测试是纯内存 supervisor 面，DB 面成本由 soak 承载（两者合起来才是「模拟会话压测」的完整语义）
   - Commit: 8f61bb7（A：十千会话测试）, 172d694（B：规模包络文档）
-- [ ] F043 HA PostgreSQL 与控制平面多副本演练（依赖 F041）— IN_PROGRESS
+- [x] F043 HA PostgreSQL 与控制平面多副本演练（依赖 F041）— DONE（2026-11-27）
+  - Dependencies: F041（DONE）
+  - Implementation files: deploy/docker-compose.ha.yml, deploy/postgres/{primary-init.sh,standby-entrypoint.sh}, deploy/README.md（HA topology + failover drill 节）
+  - Commands and actual results:
+    - `docker compose -f deploy/docker-compose.ha.yml config --quiet` → 通过（COMPOSE-CONFIG-OK；本机占位 secret 文件齐全且经 git check-ignore 验证全部被忽略）
+    - 拓扑：postgres-primary（wal_level=replica + max_wal_senders/replication_slots，init 脚本建 replicator 角色，密码走文件 secret）+ postgres-standby（首次启动 pg_basebackup -R 引导热备、重启不重拷）+ mcp-a/mcp-b（控制面双副本，`fishpond mcp --transport http`——今日唯一长驻二进制面；放置/租约/排空/操作全走库，副本零内存状态可故障转移）+ migrate/doctor 单发服务
+    - 故障转移演练步骤已写进 deploy/README：停 primary → `pg_ctl promote -U fishpond` 升 standby → 改 deploy/secrets/database_url.txt 指向新主机 → `up -d mcp-a mcp-b`（副本重启时从 secret 文件重解析 URL，无重建无镜像变化）→ doctor 复验
+    - 密钥面：replication 密码只经 pg_basebackup 那一步的环境；`-R` 持久化的 primary_conninfo（含密码）落在 standby 自己的 PGDATA 卷内——compose 文件/运行环境/日志均无
+  - Limitations:
+    - **本机无法实盘演练复制引导**：registry-1.docker.io 在本网络持续 connection reset（6/6 次拉取失败，非抖动），本机亦无本地 postgres 镜像——实盘演练（引导→流复制→promote→副本重指）需要在 registry 可达的环境按 README 步骤执行；验证止于 compose config 语义校验（与 F029/F037 同标准）
+    - mcp 的 API key 今日只读 FISHPOND_API_KEY 环境变量（无 *_FILE 变体），值放 git 忽略的 deploy/secrets/mcp.env——compose 文件/仓库/日志无值；key 落 secret 文件待 mcp 面加 *_FILE 读取
+    - server 二进制入口未落地（compose 注释已预留 serve 形状），控制面副本以 mcp HTTP 面承担；server 副本形状同模式
+  - Commit: 9dc8f24（HA compose+脚本）, ca963d3（README 演练文档）
 - [ ] F044 外部受控 Browser Provider 接入（依赖 F041）

@@ -189,7 +189,12 @@
   - Commands and actual results: `cargo test -p fishpond-server`（lib 3 + f009 3 + f011 5 全绿）；`cargo test --workspace` 带 FISHPOND_TEST_DATABASE_URL 两轮 142 通过 0 失败、不带 DB 142 通过；`cargo clippy --workspace --all-targets -- -D warnings` 默认与 1.88 工具链均零警告；`cargo fmt --all -- --check` 通过；`python3 scripts/check_workspace.py` 15 成员分层合规。语义决定：互斥状态=AWAITING_CONFIRMATION/AUTHORIZED/TAKEN_OVER（PENDING 不互斥，避免陈旧登录堵死重登）；接管停 actor、resume 只恢复授权不复活 actor（调用方重新 attach，非对称已文档化）；resume 不刷新凭据版本钉，轮换后仍 ReauthRequired；EXPIRED 终态不可 resume。附带修复：tenant_isolation.rs 两个并行测试争写全局 tenant_roles 行（owner/viewer 改唯一角色名，3 连跑验证）
   - Limitations / BLOCKED reasons: authorize 不校验传入版本与库存信封一致（调用方负责传当前代，fresh login 用 credential_version 现读）；expire_stale 按租户全量 list 扫描，量大后需增量游标（记入 F013 scheduler 优化面）
   - Commit: 7914ea0
-- [ ] F012 Worker 注册、心跳、lease/generation、CAS；T01/T02/T20（依赖 F006,F010）
+- [x] F012 Worker 注册、心跳、lease/generation、CAS；T01/T02/T20（依赖 F006,F010）
+  - Dependencies: F006 DONE, F010 DONE
+  - Implementation files: crates/storage/migrations/0005_worker_leases.sql（workers + account_leases 两表，ENABLE+FORCE RLS，holder 软引用无 FK——租约可短暂长于 worker 行，清理归 F013）；crates/storage/src/workers.rs（register 幂等续注保留 registered_at/heartbeat/get/list/lost_workers/deregister）；crates/storage/src/leases.rs（acquire/renew/release/get 全 CAS 单语句：acquire 插入或偷过期租约或续自己，代 generation 仅在换主时 +1；renew 仅限持有人且 term 未过期——过期 term 不许原地续）；crates/storage/src/error.rs（+Conflict{what,id,reason}）；crates/domain/src/id.rs（WorkerId）；crates/worker/src/registration.rs（T01 服务）+ lease.rs（T02/T20 服务）+ tests/common/mod.rs；crates/storage/tests/worker_registry.rs + account_leases.rs；crates/worker/tests/f012_worker_lifecycle.rs
+  - Commands and actual results: `cargo test -p fishpond-worker -p fishpond-storage -p fishpond-domain` 全绿（registry 2、leases 2、f012 3、domain 30、credentials 10 等）；`cargo test --workspace` 带 FISHPOND_TEST_DATABASE_URL 两轮 149 通过 0 失败、不带 DB 149 通过；`cargo clippy --workspace --all-targets -- -D warnings` 默认与 1.88 工具链零警告；`cargo fmt --all -- --check` 通过；`python3 scripts/check_workspace.py` 合规。T01=注册+心跳+lost 检测（f012_worker_lifecycle::t01_*）；T02=lease 互斥可续期 term（t02_*）；T20=过期偷取+generation 围栏（t20_*）——T 号为外部计划文档定义，映射按 F012 标题措辞推断并在测试头注明。测试证据：活租约被他人 CAS 拒绝且报持有人+代数；偷取后代数 1→2；被偷者 renew 失败点名新持有人；过期自续被拒并指向 re-acquire；两租户 RLS 隔离 + 裸池读 0 行。过程中修复：新仓库方法漏 tx.commit()（sqlx 事务 drop 即回滚，副作用不可见），已全部补齐
+  - Limitations / BLOCKED reasons: 心跳/续租的守护循环（间隔调度、steal-back 策略）不在 F012 面，归 F013 scheduler；lost_workers 与租约过期只做检测不做接管动作；worker 无状态机（TODO 未要求）
+  - Commit: 696f89d
 - [ ] F013 Scheduler 容量和亲和、drain、故障接管（依赖 F012）
 - [ ] F014 operation/attempt 持久化、claim、deadline、幂等；T03/T04/T07（依赖 F006,F012）
 - [ ] F015 reconcile 服务、UNKNOWN 和人工核对（依赖 F014,F004）

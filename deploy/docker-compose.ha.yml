@@ -1,0 +1,116 @@
+# HA control plane (F043): a PostgreSQL primary with one streaming
+# hot standby, and the control plane running as TWO stateless
+# replicas against the same primary. The long-running binary face
+# today is the MCP HTTP transport (`fishpond mcp --transport http`);
+# placement, leases, drain and operations all coordinate through the
+# database, so a replica carries no memory state worth failing over —
+# repointing a replica at the promoted standby is the whole drill
+# (deploy/README.md, "HA topology").
+#
+# Secrets stay compose file-secrets. One documented exception: the
+# MCP face reads its demo key from FISHPOND_API_KEY (env-only, no
+# *_FILE variant yet), so the key lives in the git-ignored
+# deploy/secrets/mcp.env — never in this file, never in logs.
+x-fishpond: &fishpond
+  image: fishpond:local
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  environment:
+    FISHPOND_DATABASE_URL_FILE: /run/secrets/database_url
+  secrets:
+    - database_url
+  restart: unless-stopped
+
+x-mcp: &mcp
+  <<: *fishpond
+  command: ["mcp", "--transport", "http", "--bind", "0.0.0.0:9464"]
+  env_file:
+    - ./secrets/mcp.env
+  depends_on:
+    postgres-primary:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  postgres-primary:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: fishpond
+      POSTGRES_DB: fishpond
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+      - replication_password
+    volumes:
+      - pgdata-primary:/var/lib/postgresql/data
+      - ./postgres/primary-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    command: >
+      postgres -c wal_level=replica -c max_wal_senders=10
+               -c max_replication_slots=10 -c hot_standby=on
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fishpond -d fishpond"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  postgres-standby:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: fishpond
+      POSTGRES_DB: fishpond
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+      - replication_password
+    volumes:
+      - pgdata-standby:/var/lib/postgresql/data
+      - ./postgres/standby-entrypoint.sh:/usr/local/bin/standby-entrypoint.sh:ro
+    entrypoint: ["/usr/local/bin/standby-entrypoint.sh"]
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fishpond -d fishpond"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+
+  migrate:
+    <<: *fishpond
+    command: ["migrate"]
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    restart: "no"
+
+  doctor:
+    <<: *fishpond
+    command: ["doctor"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  mcp-a:
+    <<: *mcp
+    ports:
+      - "9464:9464"
+
+  mcp-b:
+    <<: *mcp
+    ports:
+      - "9465:9464"
+
+volumes:
+  pgdata-primary:
+  pgdata-standby:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  replication_password:
+    file: ./secrets/replication_password.txt
+  database_url:
+    file: ./secrets/database_url.txt

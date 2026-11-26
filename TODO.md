@@ -730,5 +730,5 @@
     - soak 的 72h 全视界证据在 F039（1k 账号 261s 全绿）；本任务的证据面是集群形状 × 大账号规模
     - 10k actor 测试是纯内存 supervisor 面，DB 面成本由 soak 承载（两者合起来才是「模拟会话压测」的完整语义）
   - Commit: 8f61bb7（A：十千会话测试）, 172d694（B：规模包络文档）
-- [ ] F043 HA PostgreSQL 与控制平面多副本演练（依赖 F041）
+- [ ] F043 HA PostgreSQL 与控制平面多副本演练（依赖 F041）— IN_PROGRESS
 - [ ] F044 外部受控 Browser Provider 接入（依赖 F041）

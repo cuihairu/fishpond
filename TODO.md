@@ -666,7 +666,7 @@
 
 ## M4（F039–F041）：稳定性和发布
 
-- [ ] F039 72h 模拟稳定性、故障注入、备份恢复、容量报告（依赖 F031,F037）
+- [ ] F039 72h 模拟稳定性、故障注入、备份恢复、容量报告（依赖 F031,F037）— IN_PROGRESS（侦察中）
 - [x] F040 完整账号删除、凭据撤销、数据保留与审计；T18/T21（依赖 F007,F008,F022,F035）— DONE（2026-11-27）
   - Dependencies: F007,F008,F022,F035（均 DONE）
   - Implementation files: crates/storage/migrations/0014_account_delete.sql, crates/storage/src/{store.rs,retention.rs,lib.rs}, crates/storage/tests/f040_account_lifecycle.rs（增量 A）; crates/server/src/{accounts.rs,http/accounts.rs,http/mod.rs,http/openapi.rs}, crates/server/tests/{f009_services.rs,f025_http_routes.rs,fixtures/openapi.json}, packages/sdk/src/client.ts+tests, sdk/{python,go}+scripts/test_generate_sdk.py（增量 B）; crates/storage/src/credentials.rs, crates/server/src/{credentials.rs,lib.rs,http/{mod.rs,sessions.rs,openapi.rs}}（增量 C）; crates/storage/src/retention.rs(dry-run+枚举), crates/cli/src/{purge.rs,lib.rs,main.rs}+Cargo.toml, crates/cli/tests/purge.rs（增量 D）

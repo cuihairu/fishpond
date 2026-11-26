@@ -1,15 +1,10 @@
 /**
- * Browser Worker placeholder (F002).
- *
- * F021 replaces this with the real Playwright-driven worker: page-object
- * operations, resource queue and result evidence collection.
+ * Browser worker (F021): the Playwright-driven worker shell —
+ * resource queue, page provider SPI with the mock implementation, and
+ * the worker that runs tasks in fresh contexts under the queue bound.
+ * Page-object operations and result evidence collection land in F023;
+ * control-plane enrolment lands with the REST transport (F025).
  */
-export interface BrowserWorkerOptions {
-  /** Identifier of the worker instance. */
-  readonly id: string;
-}
-
-/** Creates a placeholder browser worker descriptor. */
-export function createBrowserWorker(options: BrowserWorkerOptions): string {
-  return `browser-worker:${options.id}:placeholder`;
-}
+export * from "./browser-worker";
+export * from "./page-provider";
+export * from "./resource-queue";

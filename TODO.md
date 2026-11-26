@@ -249,7 +249,27 @@
     - 人工核对只允许 ONLINE/OFFLINE（人不能"确认未验证"）；核对记录走审计表，账号行保持域不变量（确认态无 note）
     - reconcile 编排循环（定时 tick、全量账号扫描入口）未在本任务，留给调度面/F025 wire 层组装
   - Commit: 85c4b3f
-- [ ] F016 Capability Router、授权优先级、错误分类、熔断；T05/T06/T23（依赖 F004,F014）
+- [x] F016 Capability Router、授权优先级、错误分类、熔断；T05/T06/T23（依赖 F004,F014）— DONE
+  - Dependencies: F004（DONE）, F014（DONE）
+  - Implementation files:
+    - crates/router/src/scope.rs（授权优先级 gate 1+2：Capability→冻结 scope 最小映射表 + authorize_scope；无 scope 映射的能力（orders:manage）对任意 key 不可路由——权限不能凭空造出缺失 scope）
+    - crates/router/src/classify.rs（错误分类：Invalid/Unsupported=CallerFault 不计入熔断；Transient/RateLimited/Timeout/Auth/Internal=UpstreamFault 计连续失败）
+    - crates/router/src/breaker.rs（熔断：每 tenant+platform 一路电路，Closed→Open（连续 N 次 upstream 故障）→冷却后半开探针→成功关闭/失败重开；显式 now 全确定性；8 条单测）
+    - crates/router/src/error.rs（RouteError：ScopeDenied/NotRoutable/NoProviderForPlatform/CapabilityNotSupported/CircuitOpen(含 retry_after)/Upstream；Display 无秘密；单测）
+    - crates/router/src/router.rs（CapabilityRouter：五道 fail-closed gate 依次 RBAC scope→可路由性→平台注册→manifest 能力声明→协议协商→熔断；route 产出 RoutePlan（provider+协商版本+熔断键）；execute 执行并按分类结算熔断）
+    - crates/router/tests/f016_router.rs（5 条 mock provider 集成：全 gate 通过的发送（含 authorize 前置+V1_1 协商）、gate 优先序负例×5、上游故障开路→开路期短拒绝（上游零调用）→探针愈合、CallerFault×5 不开路且健康路径不受影响、电路按 tenant/platform 独立）+ scope/breaker/classify/error 13 条单测
+  - Commands and actual results:
+    - cargo fmt --all -- --check：通过
+    - cargo clippy --workspace --all-targets -- -D warnings：默认工具链与 1.88 CI 工具链均零警告
+    - FISHPOND_TEST_DATABASE_URL 指向本地测试库时 cargo test --workspace：205 passed / 0 failed（新增 18 条：router 13 单测 + 5 集成）
+    - python3 scripts/check_workspace.py：workspace structure ok: 15 members, layering rules satisfied
+  - Limitations / BLOCKED reasons:
+    - 路由注册表与熔断态均进程内存：重启即清零（诚实默认，真实故障一次探针即重开）；跨进程共享留分布式面
+    - 熔断键为 tenant+platform：同平台多 provider 或按账号细分粒度留后续
+    - 真实引擎（official API / browser）接入仍是 F032+（授权红线）；CI 注册表里只有 mock
+    - execute 的调用闭包需要 Box::pin（async_trait 装箱语义）；未做便捷包装方法
+    - ScopeDenied 在 gate 1：被拒 key 学不到拓扑；NotRoutable 恒失败不因 key 权限变化
+  - Commit: （待推后填写）
 - [ ] F017 inbox/投影/outbox、事件序列、去重、缺口事件；T13（依赖 F006,F004）
 - [ ] F018 Webhook 订阅、签名、SSRF、delivery 重试/重投；T14/T17（依赖 F017,F007）
 - [ ] F019 SSE 续订/回放/权限、慢消费者处理；T15/T16（依赖 F017,F007）

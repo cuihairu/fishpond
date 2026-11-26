@@ -513,7 +513,29 @@
     - canary 两道的实际流量占比观测归 F030 观测面
     - 真实 provider 包分发与签名密钥托管红线禁入；测试密钥是进程内字符串
   - Commit: 8cd48fc
-- [ ] F029 Compose、迁移 job、secret mount、健康检查、CLI doctor（依赖 F025,F026）
+- [x] F029 Compose、迁移 job、secret mount、健康检查、CLI doctor（依赖 F025,F026）
+  - Dependencies: F025, F026
+  - Implementation files:
+    - crates/storage/src/dburl.rs — 数据库 URL 唯一解析点：flag > FISHPOND_DATABASE_URL > FISHPOND_DATABASE_URL_FILE 挂载的 secret 文件（trim 尾部空白）；DbUrlSource{Flag|Env|SecretFile}.describe() 只报来源报 "value withheld"；DbUrlError{Missing|Empty{source}|UnreadableFile{path}|EmptyFile{path}} 的 Display 绝不携带 URL 值。纯决策核 `resolve_from(flag, env_url, env_file)` 与 env 读取壳 `resolve_database_url` 分离——workspace 级 forbid(unsafe_code)（edition 2024 下 set_var 是 unsafe）禁止测试改进程环境，测试走参数注入
+    - crates/storage/src/store.rs — connect_unmigrated（doctor 只读不迁移）、connect=connect_unmigrated+run_migrations、run_migrations()->usize（前后 applied 差值，sqlx 0.8 的 Migrator::run 不返回 report，改用 Migrate::list_applied_migrations）、ping()（SELECT 1 证明惰性池连通）、schema_current()（嵌入迁移版本 vs _sqlx_migrations）
+    - crates/cli/src/doctor.rs — fishpond doctor：3 项检查（database_url 来源描述 / database_reachable 带耗时 / schema_current），渲染 "[ok]/[FAIL] name: detail"，退出码 0 健康 / 1 不健康 / 2 用法错误；--database-url 与 --database-url= 两种形式
+    - crates/cli/src/migrate.rs — fishpond migrate：connect+run_migrations，幂等，报应用条数
+    - crates/cli/src/{lib,main}.rs、Cargo.toml — mcp|doctor|migrate 三命令分发，Runtime::new().block_on
+    - deploy/Dockerfile — rust:1.88-slim（锁 MSRV）构建 → debian:bookworm-slim 运行，非 root 用户，只装 fishpond CLI
+    - deploy/docker-compose.yml — postgres:18（pg_isready healthcheck + POSTGRES_PASSWORD_FILE secret）→ migrate 一次性 job（service_healthy 门）→ doctor（service_completed_successfully 门，restart: "no"）；database_url 整条 URL 走 compose file-secret 挂载 + FISHPOND_DATABASE_URL_FILE 解析，凭据不进环境变量/docker inspect/日志
+    - deploy/README.md（secret 生成与运行顺序）、deploy/secrets/.gitignore（`*` + `!.gitignore`）、根 .dockerignore
+  - Commands and actual results:
+    - `cargo test --workspace`（FISHPOND_TEST_DATABASE_URL=本地真库）→ 75 个套件全 ok、321 passed、0 failed（312 → +9：dburl 6 纯测 + doctor 3，其中 doctor 2 条 DB 门控真跑库）
+    - `cargo clippy --workspace --all-targets -- -D warnings`（默认工具链与 1.88 各一遍）→ 零警告；`cargo fmt` 通过
+    - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members
+    - 端到端（./target/debug/fishpond）：doctor --database-url → 3 项 [ok] 退出 0，渲染无 postgres:// 字样；FISHPOND_DATABASE_URL migrate → "0 migration(s) applied; schema current" 退出 0（幂等）；空 env → "[FAIL] database_url: database url from FISHPOND_DATABASE_URL is empty" 退出 1；FISHPOND_DATABASE_URL_FILE=/nonexistent → "secret file \"/nonexistent\" is unreadable"（报路径不报 URL）；未知参数 → 退出 2
+    - `docker compose -f deploy/docker-compose.yml config`（临时 dummy secrets，验证后已删）→ config_exit=0，secrets/healthcheck/depends_on 条件映射正确
+  - Limitations / BLOCKED reasons:
+    - compose 暂无长驻 app 服务：fishpond-server 还没有 main.rs（http 层 /healthz 路由 F025 已就绪，入口归引擎面任务），fishpond-worker 入口存在但未入栈；compose 文件内注释了 server 服务的目标形状
+    - Dockerfile 当前只构建 fishpond CLI；app 二进制就绪后加入同一镜像
+    - doctor 的 database_reachable 只证明连通，不判定角色/延迟阈值；pg_isready 只证明 postgres 可接受连接
+    - 本机未跑 `docker compose up` 全栈（验证止于 compose config 语义校验）；全栈拉起验收归 F031 的集成测试面
+  - Commit: fc2f80e
 - [ ] F030 tracing、指标、队列深度、资源告警；脱敏扫描（依赖 F010,F014,F017）
 - [ ] F031 security/integration/chaos 测试和 1,000 Mock 会话初测（依赖 F026,F029,F030）
 

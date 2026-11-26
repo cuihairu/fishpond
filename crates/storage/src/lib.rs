@@ -35,7 +35,8 @@ pub use authz::{
     hash_api_key, require_scope,
 };
 pub use credentials::{
-    CredentialCipher, CredentialRecord, MasterKey, NewCredential, SealedSecret, SecretBox,
+    CredentialCipher, CredentialRecord, CredentialRevocation, MasterKey, NewCredential,
+    SealedSecret, SecretBox,
 };
 pub use dburl::{DbUrlError, DbUrlSource, resolve_database_url};
 pub use error::{StorageError, StorageResult};

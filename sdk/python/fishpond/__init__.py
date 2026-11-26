@@ -266,6 +266,15 @@ class FishpondClient:
         )
 
 
+    def revoke_credential(self, id) -> RevokedCredential:
+        """Revoke a credential and the authorized sessions carrying it (one transaction)"""
+        return self._request(
+            "POST",
+            "/credentials/{id}/revoke",
+            path_args={"id": id},
+        )
+
+
     def set_account_state(self, id, body: dict) -> Account:
         """One account state-machine step
 

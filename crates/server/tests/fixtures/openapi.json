@@ -478,6 +478,30 @@
         ],
         "type": "object"
       },
+      "RevokedCredential": {
+        "properties": {
+          "credential": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "revoked_at": {
+            "description": "unix ms",
+            "type": "integer"
+          },
+          "revoked_sessions": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "credential",
+          "revoked",
+          "revoked_at",
+          "revoked_sessions"
+        ],
+        "type": "object"
+      },
       "SessionPage": {
         "properties": {
           "next_cursor": {
@@ -957,6 +981,73 @@
           }
         ],
         "summary": "One account state-machine step"
+      }
+    },
+    "/credentials/{id}/revoke": {
+      "post": {
+        "operationId": "revokeCredential",
+        "parameters": [
+          {
+            "description": "Resource id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedCredential"
+                }
+              }
+            },
+            "description": "What the revocation did"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Missing or unknown key"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Absent or foreign resource"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "scope": "sessions:write"
+          }
+        ],
+        "summary": "Revoke a credential and the authorized sessions carrying it (one transaction)"
       }
     },
     "/events": {

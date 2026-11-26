@@ -39,6 +39,8 @@ pub struct AppState {
     pub accounts: crate::Accounts,
     /// Authorization-session service.
     pub sessions: crate::Sessions,
+    /// Credential lifecycle service (F040 revocation).
+    pub credentials: crate::Credentials,
     /// Manual takeover service (F034 short-lived operator grants).
     pub takeover: crate::TakeoverService,
     /// Direct store handle (event-log routes read storage directly).
@@ -53,10 +55,12 @@ impl AppState {
             store.clone(),
             crate::SessionCoordinator::new(sessions.clone()),
         );
+        let credentials = crate::Credentials::new(store.clone());
         AppState {
             keys,
             accounts: crate::Accounts::new(store.clone()),
             sessions,
+            credentials,
             takeover,
             store,
         }
@@ -99,6 +103,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/sessions", get(sessions::list).post(sessions::start))
         .route("/sessions/{id}", get(sessions::get))
         .route("/sessions/{id}/transition", post(sessions::transition))
+        .route(
+            "/credentials/{id}/revoke",
+            post(sessions::revoke_credential),
+        )
         .route(
             "/sessions/{id}/takeover",
             post(takeover::issue).get(takeover::list),

@@ -311,6 +311,22 @@ pub struct CredentialRecord {
     pub revoked_at: Option<UnixMillis>,
 }
 
+/// What one credential revocation did (see
+/// [`Store::revoke_credential_with_sessions`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialRevocation {
+    /// The revoked credential's id.
+    pub credential: String,
+    /// `true` when this call performed the revocation; `false` when the
+    /// credential was already revoked (idempotent replay).
+    pub revoked: bool,
+    /// The revocation instant (the original one on a replay).
+    pub revoked_at: UnixMillis,
+    /// `AUTHORIZED` sessions carrying the credential that were revoked
+    /// with it (zero on a replay).
+    pub revoked_sessions: u64,
+}
+
 /// Everything needed to issue one credential.
 pub struct NewCredential<'a> {
     /// Credential id (unique across tenants).
@@ -499,6 +515,69 @@ impl crate::store::Store {
         .await?;
         tx.commit().await?;
         Ok(row.is_some())
+    }
+
+    /// Revokes a credential and, in the same transaction, revokes every
+    /// `AUTHORIZED` session that carries it (F040): a dead carrier must
+    /// not keep live sessions authorized — the domain machine has no
+    /// re-auth state, so the sessions end as `REVOKED` with an explicit
+    /// note. Idempotent: revoking an already-revoked credential reports
+    /// `revoked: false` with its original instant and touches nothing.
+    /// A missing (or foreign) credential is [`StorageError::NotFound`].
+    pub async fn revoke_credential_with_sessions(
+        &self,
+        tenant: &TenantId,
+        id: &str,
+        now: UnixMillis,
+    ) -> StorageResult<CredentialRevocation> {
+        let mut tx = self.begin_tenant(tenant).await?;
+        let revoked_now = sqlx::query(
+            "UPDATE credentials SET is_revoked = TRUE, revoked_at = $2
+             WHERE id = $1 AND NOT is_revoked",
+        )
+        .bind(id)
+        .bind(now.as_millis())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            == 1;
+        let revoked_at = if revoked_now {
+            now
+        } else {
+            let row = sqlx::query("SELECT revoked_at FROM credentials WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+            let Some(row) = row else {
+                return Err(StorageError::NotFound {
+                    what: "credential",
+                    id: id.to_owned(),
+                });
+            };
+            UnixMillis::from_millis(row.try_get::<i64, _>("revoked_at")?)?
+        };
+        let revoked_sessions = if revoked_now {
+            sqlx::query(
+                "UPDATE auth_sessions
+                 SET state = 'REVOKED', state_note = 'credential revoked', updated_at = $3
+                 WHERE tenant_id = $1 AND credential_id = $2 AND state = 'AUTHORIZED'",
+            )
+            .bind(tenant.as_str())
+            .bind(id)
+            .bind(now.as_millis())
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        } else {
+            0
+        };
+        tx.commit().await?;
+        Ok(CredentialRevocation {
+            credential: id.to_owned(),
+            revoked: revoked_now,
+            revoked_at,
+            revoked_sessions,
+        })
     }
 
     /// Lists a tenant's credential metadata (no secret material).

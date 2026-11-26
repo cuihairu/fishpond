@@ -91,6 +91,7 @@ class OperationCoverage(unittest.TestCase):
             "registerAccount",
             "getAccount",
             "deleteAccount",
+            "revokeCredential",
             "setAccountState",
             "listEvents",
             "streamEvents",
@@ -123,6 +124,7 @@ class OperationCoverage(unittest.TestCase):
         ts, py, go = ts_out(), py_out(), go_out()
         self.assertIn("async getAccount(id: string)", ts)
         self.assertIn("async deleteAccount(id: string)", ts)
+        self.assertIn("async revokeCredential(id: string)", ts)
         self.assertIn("async releaseTakeover(id: string, grantId: string)", ts)
         self.assertIn("def get_account(self, id)", py)
         self.assertIn("path_args={\"id\": id}", py)

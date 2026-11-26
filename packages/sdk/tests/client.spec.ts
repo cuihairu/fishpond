@@ -345,3 +345,29 @@ describe("account deletion (F040)", () => {
     expect((error as ApiError).kind).toBe("forbidden");
   });
 });
+
+describe("credential revocation (F040)", () => {
+  it("posts to the revoke path with the bearer and returns the report", async () => {
+    responder = () =>
+      json({ credential: "cred-1", revoked: true, revoked_at: 1234, revoked_sessions: 2 });
+    const report = await client().revokeCredential("cred-1");
+    expect(last().method).toBe("POST");
+    expect(last().url).toBe("http://control.test/credentials/cred-1/revoke");
+    expect(last().headers.authorization).toBe("Bearer key-1");
+    expect(last().body).toBeUndefined();
+    expect(report).toEqual({
+      credential: "cred-1",
+      revoked: true,
+      revoked_at: 1234,
+      revoked_sessions: 2,
+    });
+  });
+
+  it("classifies a missing credential as missing", async () => {
+    responder = () => problem("not-found", 404, "credential cred-x not found");
+    const error = await client()
+      .revokeCredential("cred-x")
+      .catch((caught: unknown) => caught);
+    expect((error as ApiError).kind).toBe("missing");
+  });
+});

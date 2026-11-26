@@ -211,6 +211,14 @@ type ReleaseResult struct {
 	Released bool `json:"released"`
 }
 
+// RevokedCredential mirrors the contract schema of the same name.
+type RevokedCredential struct {
+	Credential      string `json:"credential"`
+	Revoked         bool   `json:"revoked"`
+	RevokedAt       int64  `json:"revoked_at"`
+	RevokedSessions int64  `json:"revoked_sessions"`
+}
+
 // SessionPage mirrors the contract schema of the same name.
 type SessionPage struct {
 	NextCursor string        `json:"next_cursor"`
@@ -557,6 +565,19 @@ func (c *Client) RegisterAccount(ctx context.Context, body RegisterAccount) (Acc
 func (c *Client) ReleaseTakeover(ctx context.Context, id string, grantId string) (ReleaseResult, error) {
 	var out ReleaseResult
 	payload, err := c.do(ctx, "DELETE", "/sessions/"+url.PathEscape(id)+"/takeover/"+url.PathEscape(grantId)+"", nil, nil, nil, true)
+	if err != nil {
+		return out, err
+	}
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// Revoke a credential and the authorized sessions carrying it (one transaction)
+func (c *Client) RevokeCredential(ctx context.Context, id string) (RevokedCredential, error) {
+	var out RevokedCredential
+	payload, err := c.do(ctx, "POST", "/credentials/"+url.PathEscape(id)+"/revoke", nil, nil, nil, true)
 	if err != nil {
 		return out, err
 	}

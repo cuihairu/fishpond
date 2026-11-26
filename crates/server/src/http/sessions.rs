@@ -291,3 +291,45 @@ pub async fn transition(
     let record = record.map_err(|err| Problem::from(&err))?;
     Ok(Json(SessionDto::from(record)))
 }
+
+/// The credential-revocation wire DTO (F040): what one revocation did.
+#[derive(Debug, Serialize)]
+pub struct RevokedCredentialDto {
+    /// The revoked credential's id.
+    pub credential: String,
+    /// `false` when it was already revoked (idempotent replay).
+    pub revoked: bool,
+    /// The revocation instant (original one on a replay).
+    pub revoked_at: i64,
+    /// `AUTHORIZED` sessions revoked because they carried the credential.
+    pub revoked_sessions: u64,
+}
+
+impl From<fishpond_storage::CredentialRevocation> for RevokedCredentialDto {
+    fn from(report: fishpond_storage::CredentialRevocation) -> Self {
+        RevokedCredentialDto {
+            credential: report.credential,
+            revoked: report.revoked,
+            revoked_at: report.revoked_at.as_millis(),
+            revoked_sessions: report.revoked_sessions,
+        }
+    }
+}
+
+/// `POST /credentials/{id}/revoke` — revokes the credential and, in the
+/// same transaction, every authorized session carrying it; fresh logins
+/// were already refused at authorize time. Idempotent (a replay reports
+/// `revoked: false`); 404 when the id is absent or foreign.
+pub async fn revoke_credential(
+    State(state): State<AppState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Result<Json<RevokedCredentialDto>, Problem> {
+    require(&caller, "sessions:write")?;
+    let report = state
+        .credentials
+        .revoke(&caller.tenant, &id, super::now())
+        .await
+        .map_err(|err| Problem::from(&err))?;
+    Ok(Json(RevokedCredentialDto::from(report)))
+}

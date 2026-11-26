@@ -478,3 +478,131 @@ async fn delete_account_route_contract() {
     let (status, got) = call(&router, "GET", &other_path, Some("key-f040-del"), None).await;
     assert_eq!(status, StatusCode::OK, "{got}");
 }
+
+#[tokio::test]
+async fn revoke_credential_route_contract() {
+    if gated().await.is_none() {
+        eprintln!("skip: no database");
+        return;
+    }
+    let (router, tenant, store) = setup("f040-cred").await;
+    let account_id = unique_entity("acc", "cred");
+    let (status, created) = call(
+        &router,
+        "POST",
+        "/accounts",
+        Some("key-f040-cred"),
+        Some(serde_json::json!({ "id": account_id, "platform": "mock" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+
+    // A real credential row backs the route (credentials are stored by
+    // the profile/worker face; the REST face only revokes).
+    let cipher =
+        fishpond_storage::CredentialCipher::new(fishpond_storage::MasterKey::generate(), 1);
+    let credential_id = unique_entity("cred", "route");
+    store
+        .store_credential(fishpond_storage::NewCredential {
+            id: &credential_id,
+            tenant: &tenant,
+            platform: "mock",
+            kind: "api_token",
+            cipher: &cipher,
+            secret: fishpond_storage::SecretBox::new("route-secret-do-not-log"),
+            created_at: ts(1_000),
+        })
+        .await
+        .expect("credential insert");
+
+    // Authorize a session that carries it, then revoke through REST.
+    let session_id = unique_entity("ses", "cred");
+    let (status, started) = call(
+        &router,
+        "POST",
+        "/sessions",
+        Some("key-f040-cred"),
+        Some(serde_json::json!({
+            "id": session_id,
+            "account_id": account_id,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{started}");
+    let (status, authorized) = call(
+        &router,
+        "POST",
+        &format!("/sessions/{session_id}/transition"),
+        Some("key-f040-cred"),
+        Some(serde_json::json!({
+            "action": "authorize",
+            "credential_id": credential_id,
+            "credential_version": 1,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{authorized}");
+
+    let (status, report) = call(
+        &router,
+        "POST",
+        &format!("/credentials/{credential_id}/revoke"),
+        Some("key-f040-cred"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    assert_eq!(report["credential"], credential_id.as_str());
+    assert_eq!(report["revoked"], true);
+    assert_eq!(report["revoked_sessions"], 1);
+
+    // The carrying session is revoked (verify via the session surface).
+    let (status, session) = call(
+        &router,
+        "GET",
+        &format!("/sessions/{session_id}"),
+        Some("key-f040-cred"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    assert_eq!(session["state"], "REVOKED");
+
+    // Idempotent second call; unknown id is 404; ro key is 403.
+    let (status, again) = call(
+        &router,
+        "POST",
+        &format!("/credentials/{credential_id}/revoke"),
+        Some("key-f040-cred"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_eq!(again["revoked"], false);
+    assert_eq!(again["revoked_sessions"], 0);
+
+    let (status, problem) = call(
+        &router,
+        "POST",
+        "/credentials/cred-never/revoke",
+        Some("key-f040-cred"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{problem}");
+    assert_eq!(problem["type"], "https://fishpond.dev/problems/not-found");
+
+    let (status, problem) = call(
+        &router,
+        "POST",
+        &format!("/credentials/{credential_id}/revoke"),
+        Some("key-ro-f040-cred"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+    assert_eq!(
+        problem["type"],
+        "https://fishpond.dev/problems/scope-denied"
+    );
+}

@@ -8,7 +8,7 @@ mod common;
 use common::*;
 
 use fishpond_domain::{AccountId, AccountState, AuthSessionId, AuthSessionState};
-use fishpond_server::{Accounts, ServiceError, Sessions};
+use fishpond_server::{Accounts, Credentials, ServiceError, Sessions};
 use fishpond_storage::{CredentialCipher, MasterKey, NewCredential, SecretBox};
 
 #[tokio::test]
@@ -361,4 +361,109 @@ async fn delete_cascades_reports_counts_and_stays_tenant_scoped() {
         .await
         .unwrap_err();
     assert!(matches!(again, ServiceError::NotFound { .. }), "{again}");
+}
+
+#[tokio::test]
+async fn revoking_a_credential_revokes_the_sessions_that_carry_it() {
+    let Some(store) = gated().await else {
+        eprintln!("skip: {ENV} is not set (CI has no database)");
+        return;
+    };
+    let tenant = unique_tenant("svc-credrev");
+    store
+        .upsert_tenant(&tenant_record(&tenant, "CredRev"))
+        .await
+        .unwrap();
+    let account_id = AccountId::parse(unique_entity("acc", "credrev")).unwrap();
+    Accounts::new(store.clone())
+        .register(&tenant, account_id.clone(), "mock", ts(1_000))
+        .await
+        .unwrap();
+    let cipher = CredentialCipher::new(MasterKey::generate(), 1);
+    let credential_id = unique_entity("cred", "rev");
+    store
+        .store_credential(NewCredential {
+            id: &credential_id,
+            tenant: &tenant,
+            platform: "mock",
+            kind: "api_token",
+            cipher: &cipher,
+            secret: SecretBox::new("svc-credrev-secret-do-not-log"),
+            created_at: ts(1_000),
+        })
+        .await
+        .unwrap();
+
+    // One authorized session carrying the credential, one pending.
+    let sessions = Sessions::new(store.clone());
+    let carrying = AuthSessionId::parse(unique_entity("sess", "rev-a")).unwrap();
+    sessions
+        .start(
+            &tenant,
+            carrying.clone(),
+            account_id.clone(),
+            ts(2_000),
+            None,
+        )
+        .await
+        .unwrap();
+    sessions
+        .authorize(&tenant, &carrying, &credential_id, 1, None, ts(2_100))
+        .await
+        .unwrap();
+    let pending = AuthSessionId::parse(unique_entity("sess", "rev-b")).unwrap();
+    sessions
+        .start(
+            &tenant,
+            pending.clone(),
+            account_id.clone(),
+            ts(2_200),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let credentials = Credentials::new(store.clone());
+    let report = credentials
+        .revoke(&tenant, &credential_id, ts(9_000))
+        .await
+        .unwrap();
+    assert_eq!(report.credential, credential_id);
+    assert!(report.revoked, "{report:?}");
+    assert_eq!(report.revoked_at, ts(9_000));
+    assert_eq!(report.revoked_sessions, 1, "{report:?}");
+
+    // The carrying session is revoked; the pending one is untouched.
+    assert_eq!(
+        sessions.get(&tenant, &carrying).await.unwrap().state,
+        AuthSessionState::Revoked
+    );
+    assert_eq!(
+        sessions.get(&tenant, &pending).await.unwrap().state,
+        AuthSessionState::Pending
+    );
+
+    // Idempotent: the second revocation reports the original instant.
+    let again = credentials
+        .revoke(&tenant, &credential_id, ts(9_500))
+        .await
+        .unwrap();
+    assert!(!again.revoked, "{again:?}");
+    assert_eq!(again.revoked_at, ts(9_000));
+    assert_eq!(again.revoked_sessions, 0);
+
+    // A foreign tenant gets NotFound — never a revocation.
+    let stranger = unique_tenant("svc-credrev-b");
+    store
+        .upsert_tenant(&tenant_record(&stranger, "CredRevB"))
+        .await
+        .unwrap();
+    let foreign = credentials
+        .revoke(&stranger, &credential_id, ts(9_600))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(foreign, ServiceError::NotFound { .. }),
+        "{foreign}"
+    );
 }

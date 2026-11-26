@@ -345,6 +345,22 @@ fn session_paths() -> serde_json::Value {
                 }
             }
         },
+        "/credentials/{id}/revoke": {
+            "post": {
+                "operationId": "revokeCredential",
+                "summary": "Revoke a credential and the authorized sessions carrying it (one transaction)",
+                "security": [{ "bearerAuth": [] }, { "scope": "sessions:write" }],
+                "parameters": [path_param],
+                "responses": {
+                    "200": { "description": "What the revocation did", "content": {
+                        "application/json": { "schema": { "$ref": "#/components/schemas/RevokedCredential" } }
+                    } },
+                    "401": unauthorized,
+                    "403": scope_denied,
+                    "404": not_found
+                }
+            }
+        },
         "/takeover/verify": {
             "post": {
                 "operationId": "verifyTakeover",
@@ -646,6 +662,16 @@ fn account_schemas() -> serde_json::Value {
 
 fn session_schemas() -> serde_json::Value {
     json!({
+        "RevokedCredential": {
+            "type": "object",
+            "required": ["credential", "revoked", "revoked_at", "revoked_sessions"],
+            "properties": {
+                "credential": { "type": "string" },
+                "revoked": { "type": "boolean" },
+                "revoked_at": { "type": "integer", "description": "unix ms" },
+                "revoked_sessions": { "type": "integer" }
+            }
+        },
         "AuthSession": {
             "type": "object",
             "required": ["id", "account_id", "platform", "state", "created_at", "updated_at"],

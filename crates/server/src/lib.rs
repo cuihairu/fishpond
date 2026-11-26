@@ -9,6 +9,7 @@
 
 pub mod accounts;
 pub mod coordination;
+pub mod credentials;
 pub mod error;
 pub mod http;
 pub mod sessions;
@@ -16,6 +17,7 @@ pub mod takeover;
 
 pub use accounts::{Accounts, StatusSummary};
 pub use coordination::SessionCoordinator;
+pub use credentials::Credentials;
 pub use error::{ServiceError, ServiceResult};
 pub use http::{AppState, build_router};
 pub use sessions::Sessions;

@@ -126,6 +126,13 @@ export interface RegisterAccount {
 export interface ReleaseResult {
   released: boolean;
 }
+export interface RevokedCredential {
+  credential: string;
+  revoked: boolean;
+  /** unix ms */
+  revoked_at: number;
+  revoked_sessions: number;
+}
 export interface SessionPage {
   next_cursor: string | null;
   sessions: AuthSession[];
@@ -402,6 +409,13 @@ export class FishpondClient {
   async releaseTakeover(id: string, grantId: string): Promise<ReleaseResult> {
     const path = `/sessions/${encodeURIComponent(id)}/takeover/${encodeURIComponent(grantId)}`;
     return this.request<ReleaseResult>("DELETE", path, {
+    });
+  }
+
+  /** Revoke a credential and the authorized sessions carrying it (one transaction) */
+  async revokeCredential(id: string): Promise<RevokedCredential> {
+    const path = `/credentials/${encodeURIComponent(id)}/revoke`;
+    return this.request<RevokedCredential>("POST", path, {
     });
   }
 

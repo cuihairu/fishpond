@@ -82,6 +82,9 @@ define_id!(
 define_id!(
     /// One stream event.
     EventId => "event");
+define_id!(
+    /// One worker daemon (holds account leases).
+    WorkerId => "worker");
 
 /// Validates a raw id: non-empty, at most [`MAX_ID_LEN`], charset
 /// `[A-Za-z0-9_-]` (safe in URLs, JSON keys and SQL literals).

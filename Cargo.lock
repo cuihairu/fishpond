@@ -580,6 +580,11 @@ dependencies = [
 [[package]]
 name = "fishpond-worker"
 version = "0.1.0"
+dependencies = [
+ "fishpond-domain",
+ "fishpond-storage",
+ "tokio",
+]
 
 [[package]]
 name = "flume"

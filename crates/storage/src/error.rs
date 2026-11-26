@@ -32,6 +32,16 @@ pub enum StorageError {
         /// Why.
         reason: String,
     },
+    /// The operation would violate an exclusivity rule (a lease held
+    /// live by another worker, a duplicate active row, ...).
+    Conflict {
+        /// What is in conflict (e.g. "account lease").
+        what: &'static str,
+        /// The id of the contested resource.
+        id: String,
+        /// Why the operation conflicts with current state.
+        reason: String,
+    },
     /// Stored or submitted data violated a domain invariant.
     Domain(DomainError),
 }
@@ -51,6 +61,7 @@ impl std::fmt::Display for StorageError {
                 "permission denied: role {role} of tenant {tenant} lacks scope {scope}"
             ),
             Self::Invalid { what, reason } => write!(f, "invalid {what}: {reason}"),
+            Self::Conflict { what, id, reason } => write!(f, "conflict on {what} {id}: {reason}"),
             Self::Domain(e) => write!(f, "domain invariant violated: {e}"),
         }
     }
@@ -63,7 +74,10 @@ impl std::error::Error for StorageError {
             Self::Migration(e) => Some(e),
             Self::Domain(e) => Some(e),
             // No underlying foreign error: these are storage's own verdicts.
-            Self::NotFound { .. } | Self::PermissionDenied { .. } | Self::Invalid { .. } => None,
+            Self::NotFound { .. }
+            | Self::PermissionDenied { .. }
+            | Self::Invalid { .. }
+            | Self::Conflict { .. } => None,
         }
     }
 }

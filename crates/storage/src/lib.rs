@@ -14,8 +14,10 @@
 pub mod authz;
 pub mod credentials;
 pub mod error;
+pub mod leases;
 pub mod sessions;
 pub mod store;
+pub mod workers;
 
 pub use authz::{
     ApiKeyRecord, ResolvedKey, RoleRecord, SCOPE_ACCOUNTS_READ, SCOPE_ALL, SCOPE_CATALOG_READ,
@@ -26,5 +28,7 @@ pub use credentials::{
     CredentialCipher, CredentialRecord, MasterKey, NewCredential, SealedSecret, SecretBox,
 };
 pub use error::{StorageError, StorageResult};
+pub use leases::AccountLease;
 pub use sessions::{AuthSessionRecord, AuthSessionUpdate, NewAuthSession};
 pub use store::{Store, TenantRecord};
+pub use workers::{NewWorker, WorkerRecord};

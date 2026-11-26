@@ -16,7 +16,7 @@ pub use dto::{
 pub use error::{DomainError, DomainResult, IdInvalidReason};
 pub use id::{
     AccountId, ApiKeyId, AttemptId, AuthSessionId, ConversationId, CredentialId, EventId,
-    MAX_ID_LEN, MessageId, OperationId, ProductId, TenantId,
+    MAX_ID_LEN, MessageId, OperationId, ProductId, TenantId, WorkerId,
 };
 pub use state::{AccountState, AuthSessionState, OperationState};
 

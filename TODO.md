@@ -662,7 +662,7 @@
     - KEK 不重封：迁移不解密 envelope（跨节点零明文暴露）；跨 KEK 轮换的 rewrap 归密钥管理面
     - drain_node 继承 migrate_off 的逐账号快照 O(n·m)（见 F013 行，优化留后续）
   - Commit: 0433274（节点 drain）, 5ef454b（profile 迁移）, a01470a（多节点 compose）
-- [ ] F038 授权测试环境 Provider 灰度、契约回归与故障 runbook（依赖 F028,F030,F032,F033）
+- [ ] F038 授权测试环境 Provider 灰度、契约回归与故障 runbook（依赖 F028,F030,F032,F033）— BLOCKED：依赖 F032/F033（均待授权红线解除）；授权未确认前不实现真实连接、不灰度，Mock 是唯一 CI 目标
 
 ## M4（F039–F041）：稳定性和发布
 
@@ -743,4 +743,19 @@
     - mcp 的 API key 今日只读 FISHPOND_API_KEY 环境变量（无 *_FILE 变体），值放 git 忽略的 deploy/secrets/mcp.env——compose 文件/仓库/日志无值；key 落 secret 文件待 mcp 面加 *_FILE 读取
     - server 二进制入口未落地（compose 注释已预留 serve 形状），控制面副本以 mcp HTTP 面承担；server 副本形状同模式
   - Commit: 9dc8f24（HA compose+脚本）, ca963d3（README 演练文档）
-- [~] F044 外部受控 Browser Provider 接入（依赖 F041）— IN_PROGRESS：RemotePageProvider（受控 origin 拉取 + setContent）实现与测试编写中
+- [x] F044 外部受控 Browser Provider 接入（依赖 F041）
+  - Dependencies: F041 DONE
+  - Implementation files: packages/browser-worker/src/remote-page-provider.ts（RemotePageProvider）, packages/browser-worker/src/remote-page-provider.test.ts, packages/browser-worker/src/index.ts（导出）
+  - Commands and actual results:
+    - `pnpm -r run lint`：3 包全过
+    - `pnpm -r run test`：sdk 36 + console 28 + browser-worker 25 全过（browser-worker 由 18 增至 25：fetch 面 5 条 + 真浏览器集成 2 条；本机装有 chromium，集成测试真实执行非跳过）
+    - `pnpm -r run build`：sdk tsc --noEmit / browser-worker tsc / console vue-tsc + vite 全过
+  - 实现要点：
+    - `RemotePageProvider implements PageProvider`：serve = fetch 受控 origin → `page.setContent`；`fetchContent(target)` 独立公开；`fetchImpl` 可注入（测试面）
+    - target 解析为一段路径：`urlFor = ${baseUrl}/${encodeURIComponent(target)}`——target 无法换主机或夹带路径穿越；baseUrl 构造期校验必须是 http/https 且禁止内嵌 user:pass 凭据
+    - 测试：loopback `node:http` fixture server（端口 0）覆盖按 target 取内容、路径段约束（deep/target 与 https://evil.example 均被编码为单段）、非 http origin 与带凭据 URL 拒绝、错误只带 target+状态码不带 404 响应体、origin 关闭后报 fetch failed for <target>；浏览器集成验证 serve 进真页面（title=remote login）与 provider 故障传导为任务失败
+  - Limitations:
+    - 红线保持：只连操作员配置的受控 origin；真实平台 URL 是 F032+ 授权红线 territory，本任务不触碰、不启用任何真实 Provider
+    - 错误消息只含 target 与状态/传输信息；origin 本身不带凭据（构造期拒绝），无凭据可泄
+    - CI 无浏览器时 fetch 面照常跑（纯 HTTP，无浏览器依赖），browser 集成按 `browserAvailable()` skip——与既有 skip 模式一致
+  - Commit: f3f805c（实现+测试+导出+IN_PROGRESS 标记）

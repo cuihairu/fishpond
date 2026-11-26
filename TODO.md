@@ -270,7 +270,26 @@
     - execute 的调用闭包需要 Box::pin（async_trait 装箱语义）；未做便捷包装方法
     - ScopeDenied 在 gate 1：被拒 key 学不到拓扑；NotRoutable 恒失败不因 key 权限变化
   - Commit: ff71d87
-- [ ] F017 inbox/投影/outbox、事件序列、去重、缺口事件；T13（依赖 F006,F004）
+- [x] F017 inbox/投影/outbox、事件序列、去重、缺口事件；T13（依赖 F006,F004）— DONE
+  - Dependencies: F006（DONE）, F004（DONE）
+  - Implementation files:
+    - crates/storage/migrations/0009_events.sql（events 日志表：(tenant,id) 主键 + (tenant,seq) 唯一；event_inbox 去重表：(tenant,consumer,event_id) 主键；projection_checkpoints 游标表：(tenant,consumer) 主键；三表 FORCE RLS + seq 索引）
+    - crates/storage/src/events.rs（append_events/append_events_tx：tenant 行 FOR UPDATE 串行化 + 事务内 MAX(seq)+1 赋号——日志自身无缺口、并发发布不开洞；同 event id 重投幂等返回已存 envelope；inbox_claim=INSERT ON CONFLICT DO NOTHING 恰一投递生效、inbox_release 失败放行重试；advance_checkpoint=GREATEST 游标永不回退；list_events 按 seq 游标分页=回放面）
+    - crates/events/src/lib.rs（EventService：publish 独立发布、原子 outbox 走 append_events_tx 组合缝；publish_gap 合成 stream.gap 事件封存观测缺口；consume_batch 恰一次应用——checkpoint 之前已认证直接跳过、批不从 checkpoint+1 起或内有洞则整批不应用不领 claim 只报 missing_seqs、apply 失败释放 claim 并中止批、成功才推进游标；catch_up 从日志回放=权威修复路径，日志无洞故永不报缺口；gaps_after 纯函数）
+    - crates/storage/tests/events.rs（8 条真库：跨批跨租户无洞、并发 6 发布者无洞、幂等重投、游标分页、claim/dedup/release、checkpoint 不回退、空类型拒绝、三表裸连接零行）
+    - crates/events/tests/f017_service.rs（4 条真库：重投恰一次、迟到批报缺口且零副作用、apply 失败释放 claim 后重试恰一次、stream.gap 封存并往返）
+  - Commands and actual results:
+    - cargo fmt --all -- --check：通过
+    - cargo clippy --workspace --all-targets -- -D warnings：默认工具链与 1.88 CI 工具链均零警告
+    - FISHPOND_TEST_DATABASE_URL 指向本地测试库时 cargo test --workspace：219 passed / 0 failed（新增 14 条：storage events 8 + events 服务 4 + gaps_after 单测 2）
+    - python3 scripts/check_workspace.py：workspace structure ok: 15 members, layering rules satisfied
+  - Limitations / BLOCKED reasons:
+    - 缺口检测面向有损传输投递批：只报告 missing_seqs 不自动补投，修复走 catch_up 日志回放；自动重投订阅属 F018/F019
+    - stream.gap 是观测记录非补投事件：只封存缺失序列与原因
+    - consume_batch 的 apply 闭包是同步 FnMut：投影落库可复用 &Store；跨 await 应用面留后续
+    - checkpoint 只认证连续前缀：有洞批中高于洞的事件不应用，等回放
+    - 赋号每事件一次 MAX(seq)+1 查询：批量发布 O(n) 查询，量级触发再换窗口函数
+  - Commit: 2985e2f
 - [ ] F018 Webhook 订阅、签名、SSRF、delivery 重试/重投；T14/T17（依赖 F017,F007）
 - [ ] F019 SSE 续订/回放/权限、慢消费者处理；T15/T16（依赖 F017,F007）
 - [ ] F020 Protobuf 生成、内部服务身份、契约兼容测试（依赖 F004,F012）

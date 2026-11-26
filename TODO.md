@@ -229,7 +229,7 @@
     - deadline reaper 是只读扫描，不自动 close：由调用方（F015 reconcile 或 scheduler 收割路径）读取后显式 close_attempt(TimedOut) 再重试，避免重放器替 worker 判定结果
     - attempt.worker / operation.claimed_by 为软引用，不强制外键到 workers，注册行可短暂后于/先于引用存在
     - 服务层编排（claim 循环、收割策略）未在本任务，留待调用方 crate
-  - Commit: （待推后填写）
+  - Commit: d3e9773
 - [ ] F015 reconcile 服务、UNKNOWN 和人工核对（依赖 F014,F004）
 - [ ] F016 Capability Router、授权优先级、错误分类、熔断；T05/T06/T23（依赖 F004,F014）
 - [ ] F017 inbox/投影/outbox、事件序列、去重、缺口事件；T13（依赖 F006,F004）

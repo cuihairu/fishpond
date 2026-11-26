@@ -20,6 +20,7 @@ pub mod observations;
 pub mod operations;
 pub mod sessions;
 pub mod store;
+pub mod webhooks;
 pub mod workers;
 
 pub use authz::{
@@ -39,4 +40,7 @@ pub use operations::{
 };
 pub use sessions::{AuthSessionRecord, AuthSessionUpdate, NewAuthSession};
 pub use store::{Store, TenantRecord};
+pub use webhooks::{
+    DeliveryRecord, DeliveryStatus, NewDelivery, NewWebhookSubscription, WebhookSubscriptionRecord,
+};
 pub use workers::{NewWorker, WorkerRecord};

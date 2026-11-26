@@ -667,6 +667,7 @@ dependencies = [
  "fishpond-domain",
  "futures",
  "rand_core 0.6.4",
+ "serde_json",
  "sha2 0.10.9",
  "sqlx",
  "tokio",

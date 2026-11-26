@@ -14,17 +14,37 @@
 //! compile-time verification (also skipped without a database).
 
 use fishpond_domain::{
-    Account, AccountId, AccountState, Conversation, ConversationId, Message, MessageDirection,
-    Product, ProductId, ProductStatus, TenantId, UnixMillis,
+    Account, AccountId, AccountState, Conversation, ConversationId, EventId, EventPayload, Message,
+    MessageDirection, Product, ProductId, ProductStatus, TenantId, UnixMillis,
 };
+use sha2::{Digest, Sha256};
 use sqlx::migrate::Migrate;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
 use crate::error::{StorageError, StorageResult};
+use crate::events::{NewEvent, append_events_tx};
 
 /// Migrations embedded at compile time from `crates/storage/migrations`.
 static MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
+/// What deleting one account removed (the per-table cascade counts,
+/// also carried in the `account.deleted` audit payload).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DeletedAccount {
+    /// Conversation threads removed.
+    pub conversations: u64,
+    /// Chat messages removed (children of the conversations).
+    pub messages: u64,
+    /// Takeover grants removed.
+    pub grants: u64,
+    /// Authorization sessions removed.
+    pub sessions: u64,
+    /// Account leases removed.
+    pub leases: u64,
+    /// Browser profiles removed.
+    pub profiles: u64,
+}
 
 /// A tenant row (the domain models tenant ids only).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +55,23 @@ pub struct TenantRecord {
     pub name: String,
     /// Creation instant.
     pub created_at: UnixMillis,
+}
+
+/// Rows affected by one executed statement.
+fn count(result: sqlx::postgres::PgQueryResult) -> u64 {
+    result.rows_affected()
+}
+
+/// First 24 hex characters of a digest — enough entropy for a
+/// tenant-scoped event id, short enough for the id length cap.
+fn hex_head(digest: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex.truncate(24);
+    hex
 }
 
 /// Owns the pool and the repository surface.
@@ -263,6 +300,135 @@ impl Store {
             id: id.as_str().to_owned(),
         })?;
         map_account(&row)
+    }
+
+    /// Deletes one account **of `tenant`** and every hard foreign-key
+    /// child in a single transaction: conversations and their messages,
+    /// takeover grants, auth sessions, account leases and profiles.
+    /// Observation history survives (migration 0014 dropped that FK) —
+    /// it is the human-readable audit trail; the `account.deleted`
+    /// event appended atomically with the deletion is the
+    /// machine-readable one and carries the per-table counts.
+    ///
+    /// Returns [`StorageError::NotFound`] when the account does not
+    /// belong to the tenant.
+    pub async fn delete_account(
+        &self,
+        tenant: &TenantId,
+        id: &AccountId,
+        at: UnixMillis,
+    ) -> StorageResult<DeletedAccount> {
+        let mut tx = self.begin_tenant(tenant).await?;
+        let row = sqlx::query("SELECT platform FROM accounts WHERE id = $1")
+            .bind(id.as_str())
+            .fetch_optional(&mut *tx)
+            .await?;
+        let platform: String = row
+            .ok_or_else(|| StorageError::NotFound {
+                what: "account",
+                id: id.as_str().to_owned(),
+            })?
+            .try_get("platform")?;
+
+        let messages = count(
+            sqlx::query(
+                "DELETE FROM messages WHERE tenant_id = $1 AND conversation_id IN
+                 (SELECT id FROM conversations WHERE tenant_id = $1 AND account_id = $2)",
+            )
+            .bind(tenant.as_str())
+            .bind(id.as_str())
+            .execute(&mut *tx)
+            .await?,
+        );
+        let conversations = count(
+            sqlx::query("DELETE FROM conversations WHERE tenant_id = $1 AND account_id = $2")
+                .bind(tenant.as_str())
+                .bind(id.as_str())
+                .execute(&mut *tx)
+                .await?,
+        );
+        let grants = count(
+            sqlx::query("DELETE FROM takeover_grants WHERE tenant_id = $1 AND account_id = $2")
+                .bind(tenant.as_str())
+                .bind(id.as_str())
+                .execute(&mut *tx)
+                .await?,
+        );
+        let sessions = count(
+            sqlx::query("DELETE FROM auth_sessions WHERE tenant_id = $1 AND account_id = $2")
+                .bind(tenant.as_str())
+                .bind(id.as_str())
+                .execute(&mut *tx)
+                .await?,
+        );
+        let leases = count(
+            sqlx::query("DELETE FROM account_leases WHERE tenant_id = $1 AND account_id = $2")
+                .bind(tenant.as_str())
+                .bind(id.as_str())
+                .execute(&mut *tx)
+                .await?,
+        );
+        let profiles = count(
+            sqlx::query("DELETE FROM profiles WHERE tenant_id = $1 AND account_id = $2")
+                .bind(tenant.as_str())
+                .bind(id.as_str())
+                .execute(&mut *tx)
+                .await?,
+        );
+        let deleted = DeletedAccount {
+            conversations,
+            messages,
+            sessions,
+            grants,
+            leases,
+            profiles,
+        };
+        sqlx::query("DELETE FROM accounts WHERE id = $1")
+            .bind(id.as_str())
+            .execute(&mut *tx)
+            .await?;
+
+        // The audit event id is a digest of (account, deletion instant):
+        // deterministic, unique per deletion, and safe even if an id is
+        // re-registered and deleted again later.
+        let digest = Sha256::digest(format!("{}-{}", id.as_str(), at.as_millis()));
+        let event_id = EventId::parse(format!("evt-del-{}", hex_head(&digest))).map_err(|err| {
+            StorageError::Invalid {
+                what: "account.deleted event id",
+                reason: err.to_string(),
+            }
+        })?;
+        let payload = EventPayload::parse(
+            serde_json::json!({
+                "account": id.as_str(),
+                "platform": platform,
+                "conversations": deleted.conversations,
+                "messages": deleted.messages,
+                "sessions": deleted.sessions,
+                "grants": deleted.grants,
+                "leases": deleted.leases,
+                "profiles": deleted.profiles,
+            })
+            .to_string(),
+        )
+        .map_err(|err| StorageError::Invalid {
+            what: "account.deleted payload",
+            reason: err.to_string(),
+        })?;
+        append_events_tx(
+            &mut tx,
+            tenant,
+            &[NewEvent {
+                id: &event_id,
+                event_type: "account.deleted",
+                account_id: Some(id),
+                occurred_at: at,
+                payload: &payload,
+            }],
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(deleted)
     }
 
     // ---- conversations ----

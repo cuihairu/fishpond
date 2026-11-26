@@ -22,6 +22,7 @@ pub mod monitor;
 pub mod observations;
 pub mod operations;
 pub mod profiles;
+pub mod retention;
 pub mod sessions;
 pub mod store;
 pub mod takeover;
@@ -46,8 +47,9 @@ pub use operations::{
     AttemptClose, AttemptRecord, ClaimedOperation, CreatedOperation, ExpiredAttempt, NewOperation,
 };
 pub use profiles::{NewProfile, ProfileLock, ProfileRecord, ProfileState};
+pub use retention::PurgeReport;
 pub use sessions::{AuthSessionRecord, AuthSessionUpdate, NewAuthSession};
-pub use store::{Store, TenantRecord};
+pub use store::{DeletedAccount, Store, TenantRecord};
 pub use takeover::{
     NewTakeoverGrant, TakeoverGrantRecord, generate_takeover_token, hash_takeover_token,
 };

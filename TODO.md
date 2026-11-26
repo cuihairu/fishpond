@@ -623,7 +623,7 @@
     - 事件页只做 REST 游标翻页；SSE 实时流接入（/events/stream）归后续增量
     - authorize 动作的 credential_id 由操作员手工粘贴，凭据自动注入归 F033 网页操作面
   - Commit: 0b3bc10, 0e1c1f4, a4db1cb
-- [ ] F036 从 OpenAPI 生成 Python/TS/Go SDK（依赖 F025）
+- [ ] F036 从 OpenAPI 生成 Python/TS/Go SDK（依赖 F025）— IN_PROGRESS（2026-11-27）
 - [ ] F037 多节点部署、Profile 安全迁移、租户隔离、节点 drain（依赖 F013,F024,F029）
 - [ ] F038 授权测试环境 Provider 灰度、契约回归与故障 runbook（依赖 F028,F030,F032,F033）
 

@@ -552,6 +552,9 @@ dependencies = [
 [[package]]
 name = "fishpond-scheduler"
 version = "0.1.0"
+dependencies = [
+ "fishpond-domain",
+]
 
 [[package]]
 name = "fishpond-server"

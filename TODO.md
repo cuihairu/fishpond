@@ -696,7 +696,7 @@
     - delete_account 不删除观测史（0014 已放开 FK，观测史=人工审计）；account.deleted 事件=机器审计标记
     - browser-worker vitest 存在既有 teardown 竞态 flake（Playwright page closed unhandled rejection；测试本身全过，与本任务无关）
   - Commit: 83e52fd（A：级联删除+保留清扫）, 43a3139（chore gitignore）, 1f734e6（B：REST DELETE+SDK）, 6df8bce（C：凭据撤销+SDK）, b14dc12（D：CLI purge）
-- [ ] F041 发布 RC：SBOM、许可证、漏洞、性能、能力矩阵、回滚文档（依赖 F039,F040）
+- [ ] F041 发布 RC：SBOM、许可证、漏洞、性能、能力矩阵、回滚文档（依赖 F039,F040）— IN_PROGRESS（npm 漏洞已修 8880c27，SBOM+audit 政策已落 12e8dbb；性能/能力矩阵/回滚文档进行中）
 
 ## M5（F042–F044）：扩展
 

@@ -485,11 +485,34 @@
     - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members
   - Limitations / BLOCKED reasons:
     - probe/audit 的调用方（定时巡检任务、控制面接线）归后续任务；本任务交付 monitor 原语与其验收
+    - 更正（2026-11-27，8cd48fc）：storage 隔离测试对 '' 平台级桶断言计数 ==1，而该桶是全部署共享（F028 的 rollout 审计测试并发写入 4 条 incident），全量并发跑必败。已改为断言隔离性质本身：listing 只返回所查作用域的行 + 自己的行在场 + 他作用域的行不泄漏；连续全量跑复验通过
     - incident 的 HTTP 面（GET /incidents 等）归控制面任务；此处只有 Rust 服务层
     - 契约套件不覆盖的能力（catalog/orders/events/stream）诊断无从归属——映射表留空，套件扩检查时再补
     - 真实平台探测仍红线禁入；mock 是唯一探测目标
   - Commit: f99bffa
-- [ ] F028 Provider manifest/digest、签名校验、版本并存、灰度与回滚；T19（依赖 F027,F020）
+- [x] F028 Provider manifest/digest、签名校验、版本并存、灰度与回滚；T19（依赖 F027,F020）— DONE（2026-11-27）
+  - Dependencies: F027 ✓(f99bffa), F020 ✓, F016 ✓(2561618), F004 ✓
+  - Implementation files: crates/provider-sdk/src/package.rs, crates/provider-sdk/src/lib.rs, crates/provider-sdk/Cargo.toml（+hmac/sha2）, crates/provider-sdk/tests/package.rs, crates/router/src/versions.rs, crates/router/src/lib.rs, crates/router/tests/f028_versions.rs, crates/monitor/src/rollout.rs, crates/monitor/src/lib.rs, crates/monitor/Cargo.toml（+fishpond-router）, crates/monitor/tests/f028_rollout.rs, crates/storage/tests/monitor.rs（并发 flake 修复）, Cargo.lock
+    - 签名包（sdk）：ProviderPackage{manifest,signature}——HMAC-SHA256 覆盖 canonical_manifest（provider_id␟display_name␟provider_version␟engine␟versions=排序␟caps=排序，声明顺序不影响签名）；sign 前置 manifest.validate；verify 常时比较（hmac verify_slice，坏 hex/错钥/篡改一律 BadSignature）；PackageError{InvalidManifest|BadSignature|EmptySecret}
+    - 版本舰队（router）：VersionedFleet 按 platform→{versions:BTreeMap, active, previous, canary}；register(provider, package, secret) 三道闸——签名验证、package.manifest 与 provider.manifest() content_digest 一致（谎报清单 = ManifestMismatch 拒之门外）、同版本同 digest 幂等返回 false / 同版本异 digest DigestConflict（静默漂移不覆盖）；首个注册版本自动 active；被拒的包不留舰队
+    - promote/rollback：promote 换 active 并留 previous（重复 promote 同版本 AlreadyActive，未知版本 UnknownPlatform/UnknownVersion）；rollback 一次性消费 previous（二连滚 NothingToRollback）并顺带关 canary（回滚使实验失效）
+    - 灰度：CanaryPolicy{version, percent 1..=99}（0/100 属 no-op/promote 域 → BadPercent；candidate==active → CanaryNeedsOtherVersion）；provider_for(platform, route_key) 用 DefaultHasher 固定键桶（0..=99）确定性选道——同 key 恒同 lane 跨进程稳定，stop_canary 全量回 active
+    - 操作轨迹：mutate 全程记 FleetChange{Promote|Rollback|CanaryStart|CanaryStop, from, to}，take_changes 排干；rollout 审计（monitor）：RolloutAuditor 把 FleetChange 落成 incident（kind=rollout，平台级 '' 作用域；rollback→warning 其余→info；id 折入 action+platform+from/to，同轨迹重放 no-op）；monitor 增 fishpond-router 依赖（层规则允许）
+  - Commands and actual results:
+    - `cargo fmt --check` → 通过
+    - `cargo clippy --workspace --all-targets -- -D warnings` → 0 警告（默认与 1.88 双过：1.100 报 manual_is_multiple_of、1.88 报 new_without_default，均已修）
+    - `cargo test -p fishpond-provider-sdk --test package` → 7 passed; 0 failed（签名往返、篡改内容/错钥/空钥/坏清单/坏 hex 一律拒、声明顺序不影响签名）
+    - `cargo test -p fishpond-router --test f028_versions` → 5 passed; 0 failed（篡改包不注册且不留舰队、注册三道闸+幂等+digest 冲突+ManifestMismatch、promote/rollback 切道与全部错误分支、canary 确定性（40 key 同 key 恒同 lane、50% 桶双侧有流量且占比 5..=35）、回滚关 canary+轨迹三动作全录+排干）
+    - `FISHPOND_TEST_DATABASE_URL=… cargo test -p fishpond-monitor --test f028_rollout` → 1 passed; 0 failed（双版本注册→promote→canary start/stop→rollback 四动作全落 incident；rollback=warning 平台级作用域；同轨迹重放 0 新增）
+    - `FISHPOND_TEST_DATABASE_URL=… cargo test --workspace` → 312 passed; 0 failed（基线 299 + 新增 13）
+    - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members
+  - Limitations / BLOCKED reasons:
+    - T19 定义不在仓库内（外部规格编号），按任务行内文字交付 manifest/digest/签名/并存/灰度/回滚；若 T19 另有所指待规格补充
+    - content_digest 沿用 F004 的 std DefaultHasher（非密码学）——防漂移比对够用，防篡改靠 HMAC 签名；注册表是进程内 Mutex 状态，跨进程持久化归后续
+    - VersionedFleet 是注册面：canary 选道尚未接进 EngineSelector 的 api lane 执行路径（F024 selector 仍绑固定 CapabilityRouter），接线归引擎面后续任务；promote/rollback 的 REST/控制面出口归控制面任务
+    - canary 两道的实际流量占比观测归 F030 观测面
+    - 真实 provider 包分发与签名密钥托管红线禁入；测试密钥是进程内字符串
+  - Commit: 8cd48fc
 - [ ] F029 Compose、迁移 job、secret mount、健康检查、CLI doctor（依赖 F025,F026）
 - [ ] F030 tracing、指标、队列深度、资源告警；脱敏扫描（依赖 F010,F014,F017）
 - [ ] F031 security/integration/chaos 测试和 1,000 Mock 会话初测（依赖 F026,F029,F030）

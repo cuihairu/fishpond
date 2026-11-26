@@ -311,7 +311,23 @@
     - claim 的 stale 窗口由调用方传参（deliver_due 现取 stale_after_ms）：跨进程多投递 worker 部署留后续
     - last_error 存传输结果文本，契约无秘密：签名/secret 永不入库外任何位置
   - Commit: 597de26
-- [ ] F019 SSE 续订/回放/权限、慢消费者处理；T15/T16（依赖 F017,F007）
+- [x] F019 SSE 续订/回放/权限、慢消费者处理；T15/T16（依赖 F017,F007）— DONE
+  - Dependencies: F017（DONE）, F007（DONE）
+  - Implementation files:
+    - crates/events/src/stream.rs（SseStreams/StreamSession/StreamPolicy/StreamPage：open 第一道门 F007 require_scope(events:read) fail-closed、会话绑 key 租户故不可能跨租户；live 订阅从 head 起播（max(checkpoint, head)——新订阅="从现在"，回访消费者取积压）、回放必须显式 Last-Event-ID（客户端对历史权威）且豁免 lag drop；page 有界取页（buffer_max）+ 逐页持久化 checkpoint（GREATEST 永不回退）；live 页取前查 lag=head-cursor，超 lag_horizon 报 SlowConsumer{resume_from=最后已投 seq 即 Last-Event-ID 重连带值, lag} 且 cursor/checkpoint 不动；手动 Debug 只渲染 tenant/consumer/cursor/replay，永不渲染 payload）
+    - crates/events/src/lib.rs（mod stream + pub use 接线）
+    - crates/events/tests/f019_stream.rs（5 条真库：无 events:read 拒之门外且只报 scope 名、有 scope 打开且绑租户；显式 Some(0) 回放有界步进 5 事件 3 页耗尽 + checkpoint 持久化后 None 重开续播 + 新事件 live 流入；Last-Event-ID=1 续订从 2 续、=0 全量回放；慢消费者 live 起播后停更 5 条超阈(3)被 drop 且 resume_from=5、凭 Some(5) 重连回放恰好补齐 6..10、steady 消费者随发随页不超阈；A/B 租户交错发布互不可见、各自独立序列号）
+  - Commands and actual results:
+    - cargo fmt --all -- --check：通过
+    - cargo clippy --workspace --all-targets -- -D warnings：默认工具链与 1.88 CI 工具链均零警告
+    - FISHPOND_TEST_DATABASE_URL 指向本地测试库时 cargo test --workspace：244 passed / 0 failed（F019 新增 7 条：f019_stream 5 + stream 单测 2）
+    - python3 scripts/check_workspace.py：workspace structure ok: 15 members, layering rules satisfied
+  - Limitations / BLOCKED reasons:
+    - SSE socket 层（text/event-stream 编码、心跳、断连）属 F025 REST 面：本任务是它驱动的确定性会话机
+    - live drop 判定在 page 入口：不 page 的消费者积压可超阈后才被下一次 page 发现；连续推送的实时判定归 socket 层
+    - 回放豁免 lag drop：显式要历史的客户端按页耗尽，不受 horizon 拦截（否则大回放永不可能）
+    - 慢消费者不做自动降采样/合并：drop+Last-Event-ID 续订是唯一策略，客户端可自选回放点
+  - Commit: 9b31ba7
 - [ ] F020 Protobuf 生成、内部服务身份、契约兼容测试（依赖 F004,F012）
 
 ## M2（F021–F031）：双引擎、API、单机完整 Mock 交付

@@ -8,11 +8,14 @@ import { describe, expect, it } from "vitest";
 import {
   accountActions,
   accountStateView,
+  describeError,
+  formatTime,
   operationStateView,
   permissionView,
   sessionActions,
   sessionStateView,
 } from "../src/present.js";
+import { ApiError } from "../src/api.js";
 
 describe("state views", () => {
   it("shows UNKNOWN as an observational warning, not health", () => {
@@ -92,5 +95,26 @@ describe("permission views", () => {
     const view = permissionView([]);
     expect(Object.values(view.can).every((allowed) => allowed === false)).toBe(true);
     expect(view.missing.length).toBeGreaterThan(0);
+  });
+});
+
+describe("operator-facing text", () => {
+  it("formats instants readably", () => {
+    expect(formatTime(0)).toContain("1970");
+  });
+
+  it("describes api problems as data, with the server's detail", () => {
+    const problem = new ApiError(
+      { type: "https://fishpond.dev/problems/scope-denied", title: "scope denied", status: 403, detail: "需要 sessions:write" },
+      "forbidden",
+    );
+    const text = describeError(problem);
+    expect(text).toContain("权限");
+    expect(text).toContain("sessions:write");
+  });
+
+  it("falls back to the raw message for plain errors", () => {
+    expect(describeError(new Error("boom"))).toBe("boom");
+    expect(describeError("weird")).toContain("weird");
   });
 });

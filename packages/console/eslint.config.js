@@ -10,5 +10,8 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: { parser: tseslint.parser },
     },
+    rules: {
+      "vue/max-attributes-per-line": ["error", { singleline: 3, multiline: { max: 1 } }],
+    },
   },
 );

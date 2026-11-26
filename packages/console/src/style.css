@@ -1,0 +1,194 @@
+/* F035: operator console theme. Tones mirror src/present.ts — one
+   class per tone, plus "other" for names outside the machines. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0f1420;
+  --panel: #171e2e;
+  --line: #26314a;
+  --text: #dce4f5;
+  --dim: #8a97b5;
+  --accent: #4da3ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, sans-serif;
+}
+
+header {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+header h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.connect {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.connect input {
+  width: 16rem;
+}
+
+nav {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.4rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+nav button {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--dim);
+  padding: 0.25rem 0.9rem;
+  cursor: pointer;
+}
+
+nav button.active {
+  color: var(--text);
+  border-color: var(--accent);
+  border-radius: 4px;
+}
+
+main {
+  padding: 1rem;
+}
+
+section h2 {
+  margin-top: 0;
+  font-size: 1rem;
+}
+
+input,
+button {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0.3rem 0.6rem;
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+th {
+  color: var(--dim);
+  font-weight: normal;
+}
+
+.badge {
+  display: inline-block;
+  border: 1px solid currentcolor;
+  border-radius: 4px;
+  padding: 0 0.45rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.tone-healthy { color: #3ad07a; }
+.tone-warn { color: #ffb648; }
+.tone-dead { color: #ff5d73; }
+.tone-busy { color: var(--accent); }
+.tone-done { color: var(--dim); }
+.tone-observe { color: #b58aff; }
+.tone-other { color: var(--dim); border-style: dashed; }
+
+.note {
+  color: var(--dim);
+  margin-left: 0.5rem;
+}
+
+.error {
+  color: #ff5d73;
+  white-space: pre-wrap;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.panel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.token-banner {
+  border: 1px solid #ffb648;
+  border-radius: 6px;
+  padding: 0.6rem;
+  margin: 0.5rem 0;
+  word-break: break-all;
+}
+
+.muted {
+  color: var(--dim);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.cards {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 0.6rem 1rem;
+  min-width: 7rem;
+}
+
+.card .num {
+  font-size: 1.4rem;
+}
+
+.mono {
+  font-family: ui-monospace, monospace;
+}

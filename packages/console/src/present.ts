@@ -5,7 +5,36 @@
 // UNKNOWN is observational: it gets its own tone and an explicit
 // note, never a silent pass as healthy.
 
+import { ApiError, type ProblemKind } from "./api.js";
+
 export type Tone = "healthy" | "warn" | "dead" | "busy" | "done" | "observe";
+
+const KIND_LABELS: Record<ProblemKind, string> = {
+  forbidden: "权限不足",
+  missing: "对象不存在",
+  invalid: "请求无效",
+  conflict: "状态冲突",
+  unauthorized: "未认证",
+  reauth: "需要重新授权",
+  server: "控制面错误",
+  other: "未知错误",
+};
+
+/** Renders an unix-ms instant for operators. */
+export function formatTime(ms: number): string {
+  return new Date(ms).toLocaleString();
+}
+
+/** One-line operator text for a failed call or unexpected throw. */
+export function describeError(error: unknown): string {
+  if (error instanceof ApiError) {
+    const label = KIND_LABELS[error.kind];
+    const detail = error.problem.detail ?? error.problem.title;
+    return `${label}：${detail}`;
+  }
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
 
 export interface StateView {
   tone: Tone;

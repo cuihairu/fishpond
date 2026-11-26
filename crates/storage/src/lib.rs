@@ -12,6 +12,7 @@
 //! tests skip when `FISHPOND_TEST_DATABASE_URL` is unset.
 
 pub mod authz;
+pub mod capacity;
 pub mod credentials;
 pub mod dburl;
 pub mod depth;
@@ -34,6 +35,7 @@ pub use authz::{
     SCOPE_CONVERSATIONS_READ, SCOPE_CONVERSATIONS_WRITE, SCOPE_EVENTS_READ, SCOPE_OPERATIONS_READ,
     hash_api_key, require_scope,
 };
+pub use capacity::CapacityReport;
 pub use credentials::{
     CredentialCipher, CredentialRecord, CredentialRevocation, MasterKey, NewCredential,
     SealedSecret, SecretBox,

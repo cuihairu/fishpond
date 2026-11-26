@@ -11,6 +11,7 @@
 //! per-tenant).
 
 use fishpond_domain::{TenantId, UnixMillis};
+use sqlx::Row;
 
 use crate::error::StorageResult;
 use crate::store::Store;
@@ -50,6 +51,45 @@ impl Store {
         &self,
         tenant: &TenantId,
         before: UnixMillis,
+    ) -> StorageResult<PurgeReport> {
+        self.sweep(tenant, before, true).await
+    }
+
+    /// [`Self::purge_expired`] without the commit: the sweep runs in a
+    /// transaction that is rolled back, so the report is exactly what a
+    /// real sweep would remove and nothing changes. The CLI's
+    /// `--dry-run` builds on this.
+    pub async fn dry_run_purge(
+        &self,
+        tenant: &TenantId,
+        before: UnixMillis,
+    ) -> StorageResult<PurgeReport> {
+        self.sweep(tenant, before, false).await
+    }
+
+    /// Tenant ids visible to this connection's role. An RLS-restricted
+    /// role sees none (fail closed) — callers that get an empty list
+    /// must pass tenants explicitly instead of assuming the deployment
+    /// has none.
+    pub async fn visible_tenant_ids(&self) -> StorageResult<Vec<String>> {
+        let mut tx = self.pool().acquire().await?;
+        let rows = sqlx::query("SELECT id FROM tenants ORDER BY id")
+            .fetch_all(&mut *tx)
+            .await?;
+        let mut ids = Vec::with_capacity(rows.len());
+        for row in rows {
+            ids.push(row.try_get::<String, _>("id")?);
+        }
+        Ok(ids)
+    }
+
+    /// The shared sweep body; `commit` distinguishes the real sweep
+    /// from the dry run's rollback.
+    async fn sweep(
+        &self,
+        tenant: &TenantId,
+        before: UnixMillis,
+        commit: bool,
     ) -> StorageResult<PurgeReport> {
         let mut tx = self.begin_tenant(tenant).await?;
         let mut report = PurgeReport::default();
@@ -104,7 +144,11 @@ impl Store {
         .execute(&mut *tx)
         .await?
         .rows_affected();
-        tx.commit().await?;
+        if commit {
+            tx.commit().await?;
+        } else {
+            tx.rollback().await?;
+        }
         Ok(report)
     }
 }

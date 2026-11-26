@@ -665,7 +665,11 @@ dependencies = [
 name = "fishpond-worker"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "fishpond-domain",
+ "fishpond-provider-mock",
+ "fishpond-provider-sdk",
+ "fishpond-router",
  "fishpond-storage",
  "serde_json",
  "sha2 0.10.9",

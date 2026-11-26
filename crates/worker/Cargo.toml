@@ -11,10 +11,14 @@ workspace = true
 
 [dependencies]
 fishpond-domain = { path = "../domain" }
+fishpond-provider-sdk = { path = "../provider-sdk" }
+fishpond-router = { path = "../router" }
 fishpond-storage = { path = "../storage" }
 serde_json = "1"
 sha2 = "0.10"
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt", "time", "test-util"] }
+async-trait = "0.1"
+fishpond-provider-mock = { path = "../provider-mock" }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time", "test-util"] }

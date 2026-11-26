@@ -666,7 +666,18 @@
 
 ## M4（F039–F041）：稳定性和发布
 
-- [ ] F039 72h 模拟稳定性、故障注入、备份恢复、容量报告（依赖 F031,F037）— IN_PROGRESS（侦察中）
+- [x] F039 72h 模拟稳定性、故障注入、备份恢复、容量报告（依赖 F031,F037）— DONE（2026-11-27）
+  - Dependencies: F031,F037（均 DONE）
+  - Implementation files: crates/cli/src/{soak.rs,lib.rs}, crates/cli/src/main.rs(+USAGE+dispatch), crates/cli/Cargo.toml(+scheduler dep), crates/cli/tests/soak.rs（增量 A）; crates/scheduler/tests/f039_faults.rs（增量 B）; deploy/{backup.sh,restore-verify.sh,README.md}（增量 C）; crates/storage/src/{capacity.rs,lib.rs}, crates/cli/src/report.rs, crates/cli/tests/report.rs（增量 D）
+  - Commands and actual results:
+    - `cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings` → 零警告
+    - `FISHPOND_TEST_DATABASE_URL=… cargo test --workspace` → 全绿 399 测试/96 套（增量前基线 396/95）
+    - 增量 A：`fishpond soak --database-url … --tenant <id> [--sim-hours --tick-ms --nodes --workers-per-node --accounts --capacity --seed --real-cap-secs]`；虚拟时钟每 tick 推进 → 72h 视界在真实几分钟内跑完（测试跑 1 模拟小时=120 tick，全绿断言 drains/deaths/operations 都发生且不变量零违例）；churn=10% 节点 drain(+3 tick 解除)/8% worker 死亡(takeover 接管)/操作 churn(60% 成功/20% 失败/20% 超时)；不变量=无存活的越界租约（排空 worker 或**超过 staleness 截止的死 worker**——新死 worker 在宽限窗口内合法）、每 worker 容量、代数不倒退；violation≥20 早退、真实时间上限防失控；exit 0 干净/1 违例或截顶/2 用法；报告无任何 url
+    - 增量 B：holder 死亡→接管→围栏链端到端（renew_lease 旧 holder 被 Conflict 拒绝并点名新 holder+generation 2；expired_attempts 收割过期尝试→TimedOut→操作回 PENDING→新 holder 重认领 attempt_no=2→Succeeded）；压力排空演练（node-1 双 worker 满容量+node-1 单 worker，5 账号确定性直种；drain 后恰好 1 个迁移、3 个 unassigned、额外 assign NoEligibleWorker、undrain 后恢复放置）
+    - 增量 C：deploy/backup.sh（pg_dump custom 格式+时间戳文件名+pg_restore --list 自检；URL 三级解析 --database-url→FISHPOND_DATABASE_URL→FISHPOND_DATABASE_URL_FILE，任何输出只提来源不提值）；deploy/restore-verify.sh（pg_restore --no-owner --role=<app 角色> 入 scratch 库→`fishpond doctor` 3 检查→无 --keep 则 drop）；本机实测：备份 936KB→scratch 库恢复→doctor healthy(reachable+schema current)→scratch 已 drop（pg_database 查证 0 行）；**发现（已写进 deploy/README）：migrations 对全部租户表 FORCE ROW LEVEL SECURITY，表属主也无法 COPY 读行 → 备份角色必须能绕过 RLS（compose 内用 postgres 超级用户），app 角色永远无法 pg_dump 自己的库**；负路径：无 URL exit 2、缺失 secret 文件 exit 1、缺参数 usage
+    - 增量 D：`fishpond report (--tenant <id> 可重复 | --all)`；storage tenant_capacity 在 begin_tenant 内单查询计数 12 项（accounts 总/在线、workers 总/排空中、时点存活租约、operations PENDING/RUNNING/终态、events、active profiles、非终态 sessions、webhook 订阅）；租约按报告时刻判活（测试证明过期租约不计）；跨表聚合双隔离（RLS+显式 WHERE tenant_id，测试证两租户互不可见）；本机实测：--all 受限角色 exit 1 fail-closed、--tenant 真实租户 exit 0 输出一行无密报告
+  - Limitations: soak 是调度/租约/操作机器的真实路径但 worker 侧仍是 stub（无真实浏览器作业，72h 是模拟时钟不是墙钟）；备份/恢复演练只在本机真库验证，未在 compose 栈内跑（worker stub 使栈无业务数据可验）；capacity report 的 profiles/sessions/webhooks 计数有读路径测试但测试只种 accounts/workers/leases/operations/events（其余靠隔离测试证零）；purge/soak/report 都要求显式租户或 --all，RLS 受限角色枚举为空一律 fail-closed
+  - Commit: 127dd1c, 12dbb19, 75e0ecb, 103b235
 - [x] F040 完整账号删除、凭据撤销、数据保留与审计；T18/T21（依赖 F007,F008,F022,F035）— DONE（2026-11-27）
   - Dependencies: F007,F008,F022,F035（均 DONE）
   - Implementation files: crates/storage/migrations/0014_account_delete.sql, crates/storage/src/{store.rs,retention.rs,lib.rs}, crates/storage/tests/f040_account_lifecycle.rs（增量 A）; crates/server/src/{accounts.rs,http/accounts.rs,http/mod.rs,http/openapi.rs}, crates/server/tests/{f009_services.rs,f025_http_routes.rs,fixtures/openapi.json}, packages/sdk/src/client.ts+tests, sdk/{python,go}+scripts/test_generate_sdk.py（增量 B）; crates/storage/src/credentials.rs, crates/server/src/{credentials.rs,lib.rs,http/{mod.rs,sessions.rs,openapi.rs}}（增量 C）; crates/storage/src/retention.rs(dry-run+枚举), crates/cli/src/{purge.rs,lib.rs,main.rs}+Cargo.toml, crates/cli/tests/purge.rs（增量 D）

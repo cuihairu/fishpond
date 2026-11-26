@@ -307,6 +307,39 @@ impl Store {
         map_profile(&row)
     }
 
+    /// Repoints the profile's on-disk directory (`storage_path`) and
+    /// nothing else — the F037 secure migration swaps the row only
+    /// after a verified copy landed at the destination. Deliberately
+    /// not an upsert: the sealed envelope, backup bookkeeping and
+    /// lifecycle state are untouched (no re-seal, no digest reset). A
+    /// destroyed tombstone (or an absent row) is refused.
+    pub async fn move_profile(
+        &self,
+        tenant: &TenantId,
+        id: &str,
+        new_storage_path: &str,
+        at: UnixMillis,
+    ) -> StorageResult<ProfileRecord> {
+        let mut tx = self.begin_tenant(tenant).await?;
+        let row = sqlx::query(&format!(
+            "UPDATE profiles SET storage_path = $3, updated_at = $4
+             WHERE tenant_id = $1 AND id = $2 AND state <> 'destroyed'
+             RETURNING {PROFILE_COLS}"
+        ))
+        .bind(tenant.as_str())
+        .bind(id)
+        .bind(new_storage_path)
+        .bind(at.as_millis())
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let row = row.ok_or_else(|| StorageError::NotFound {
+            what: "profile",
+            id: id.to_owned(),
+        })?;
+        map_profile(&row)
+    }
+
     /// Marks a restored profile back in use (`active`); the backup
     /// bookkeeping stays.
     pub async fn mark_profile_restored(

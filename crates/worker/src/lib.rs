@@ -25,5 +25,7 @@ pub use engine::{
 };
 pub use keepalive::{KeepAlive, KeepAliveConfig, RenewOutcome, TickReport};
 pub use lease::LeaseManager;
-pub use profile::{BackupReport, MANIFEST_NAME, ProfileError, ProfileManager};
+pub use profile::{
+    BackupReport, MANIFEST_NAME, MigrateReport, MigrationTarget, ProfileError, ProfileManager,
+};
 pub use registration::Registration;

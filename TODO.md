@@ -290,7 +290,27 @@
     - checkpoint 只认证连续前缀：有洞批中高于洞的事件不应用，等回放
     - 赋号每事件一次 MAX(seq)+1 查询：批量发布 O(n) 查询，量级触发再换窗口函数
   - Commit: 2985e2f
-- [ ] F018 Webhook 订阅、签名、SSRF、delivery 重试/重投；T14/T17（依赖 F017,F007）
+- [x] F018 Webhook 订阅、签名、SSRF、delivery 重试/重投；T14/T17（依赖 F017,F007）— DONE
+  - Dependencies: F017（DONE）, F007（DONE）
+  - Implementation files:
+    - crates/storage/migrations/0010_webhooks.sql（webhook_subscriptions 端点注册表（F008 信封封签 secret：secret_nonce/secret_cipher/dek_nonce/wrapped_dek/kek_version/fingerprint；event_type 过滤 NULL=全部）+ webhook_deliveries 投递队列（body 快照保证重试签名字节稳定；status pending/delivering/delivered/abandoned；next_attempt_at 调度；last_error 仅存无秘密的传输结果文本）+ FORCE RLS + 到期索引）
+    - crates/storage/src/webhooks.rs（upsert 幂等轮换同 id 旋转 URL/secret；set_enabled/delete/open_webhook_secret；insert_delivery (tenant,id) ON CONFLICT 幂等；claim_due_deliveries 原子领取 pending 到期 + stale delivering 崩溃回收（UPDATE...RETURNING）；settle_delivered/retry/abandoned；replay_delivery 任意状态重置 fresh budget；get_delivery）
+    - crates/events/src/sign.rs（HMAC-SHA256 签名：`x-fishpond-signature: t=<ms>,v1=<hex>`，MAC 输入 `<ms>.<body>`；verify_header 常时比较；openssl 固定向量测试）
+    - crates/events/src/ssrf.rs（fail-closed 端点守卫：仅 https、禁 userinfo/fragment、IP 字面量（url::Host 枚举分派 v4/v6）禁 loopback/private/link-local/ULA/unspecified/broadcast/doc 段、域名禁 localhost/.localhost/.local/.internal；错误只述规则不回显 userinfo）
+    - crates/events/src/webhooks.rs（WebhookService：subscribe 先过 SSRF 守卫再入库；enqueue 按启用+event_type 匹配扇出、(subscription,event) 对幂等；deliver_due 领取→开签→对快照 body 签名→注入 WebhookTransport（async_trait，真实 HTTP 留 F032+ 红线）→按结果结算：Transient 30s×2^n 指数退避封顶 1h、5 次耗尽 abandoned、Permanent 直接 abandoned、订阅被删 mid-flight 一并 abandoned；replay 重投重置 budget）
+    - crates/storage/tests/webhooks.rs（4 条真库）+ crates/events/tests/f018_webhooks.rs（5 条真库）+ sign/ssrf/webhooks 纯单测 8 条
+  - Commands and actual results:
+    - cargo fmt --all -- --check：通过
+    - cargo clippy --workspace --all-targets -- -D warnings：默认工具链与 1.88 CI 工具链均零警告（1.88 侧抓出 RecordedCall.body 未读字段，已删）
+    - FISHPOND_TEST_DATABASE_URL 指向本地测试库时 cargo test --workspace：237 passed / 0 failed（F018 新增 18 条：storage 4 + service 5 + 单测 9）
+    - python3 scripts/check_workspace.py：workspace structure ok: 15 members, layering rules satisfied
+  - Limitations / BLOCKED reasons:
+    - 传输是注入 trait：CI/测试用进程内 mock，真实 HTTP 出站属 F032+ 授权红线未实现
+    - SSRF 域名解析后私网地址需连接时复检：归真实 transport（DNS 解析是真实 I/O），守卫覆盖所有可离线判定面
+    - delivery 至少一次：接收方按 event id 去重；delivered 行仍可手动 replay 重发
+    - claim 的 stale 窗口由调用方传参（deliver_due 现取 stale_after_ms）：跨进程多投递 worker 部署留后续
+    - last_error 存传输结果文本，契约无秘密：签名/secret 永不入库外任何位置
+  - Commit: 597de26
 - [ ] F019 SSE 续订/回放/权限、慢消费者处理；T15/T16（依赖 F017,F007）
 - [ ] F020 Protobuf 生成、内部服务身份、契约兼容测试（依赖 F004,F012）
 

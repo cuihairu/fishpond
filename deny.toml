@@ -1,0 +1,39 @@
+# cargo-deny policy (F041): advisories and licenses for the RC face.
+# Run: cargo deny check advisories licenses
+
+[advisories]
+version = 2
+# The tree is small and pinned through Cargo.lock; a vulnerable crate
+# must be fixed or ignored with a dated justification here.
+ignore = [
+    # 2026-11-27: sqlx 0.8's facade pulls sqlx-sqlite (and its bundled
+    # libsqlite3-sys C code) unconditionally through the `macros`
+    # feature that `sqlx::migrate!` requires — even with
+    # `default-features = false, features = [... "postgres"]`. The
+    # deployment never opens a SQLite connection (the only store is
+    # Postgres), so the CVE-2026-119375 code path is dead. Revisit when
+    # sqlx ships an engine-free macros feature.
+    { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys: sqlx facade drags an unused sqlite engine; no sqlite connection is ever opened" },
+    # 2026-11-27: same facade mechanics pull sqlx-mysql → rsa. The
+    # deployment speaks only the Postgres wire protocol; MySQL
+    # authentication (and its RSA path) is unreachable. Upgrading rsa
+    # to 0.10 is not possible under sqlx 0.8's pin.
+    { id = "RUSTSEC-2023-0071", reason = "rsa via sqlx-mysql: unused mysql engine dragged by the sqlx macros feature; no mysql connection is ever opened" },
+]
+
+[licenses]
+version = 2
+# Workspace is Apache-2.0; dependencies must stay permissive.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]

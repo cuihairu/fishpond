@@ -214,7 +214,22 @@
     - drain 不自动注销：只钉住放置面并搬走租约，注册行保留（心跳停后自然进 lost 集合），注销保持显式操作
     - KeepAlive 的账号集构造时固定；动态增减账号（F014 operation claim 之后）由调用方重建服务或后续扩展
   - Commit: 9e55a36（存储面）/ 4510c5d（placement 容量亲和）/ 360addb（scheduler assign/drain/takeover）/ 729f3e8（worker keepalive）
-- [ ] F014 operation/attempt 持久化、claim、deadline、幂等；T03/T04/T07（依赖 F006,F012）
+- [x] F014 operation/attempt 持久化、claim、deadline、幂等；T03/T04/T07（依赖 F006,F012）— DONE
+  - Dependencies: F006（DONE）, F012（DONE）
+  - Implementation files:
+    - crates/storage/migrations/0007_operations.sql（operations / operation_attempts，唯一幂等键、复合 FK、FORCE RLS）
+    - crates/storage/src/operations.rs（create 幂等重放/冲突、claim CAS、attempt 编号与 close 幂等、deadline reaper）
+    - crates/storage/tests/operations.rs（幂等重放与键冲突、claim 单赢家 CAS、attempt 编号与重复 close、非 holder/跨 attempt 关闭、deadline 仅收割未关闭在途、租户隔离 + 裸池零行）
+  - Commands and actual results:
+    - cargo fmt --all -- --check：通过
+    - cargo clippy --workspace --all-targets -- -D warnings：默认工具链与 1.88 CI 工具链均零警告
+    - FISHPOND_TEST_DATABASE_URL 指向本地测试库时 cargo test --workspace：173 passed / 0 failed（新增 6 条 F014 存储层真库测试）
+  - Limitations / BLOCKED reasons:
+    - 幂等仅按 (tenant, idempotency_key) 唯一；不同 id 复用同一键一律冲突，不做自动别名
+    - deadline reaper 是只读扫描，不自动 close：由调用方（F015 reconcile 或 scheduler 收割路径）读取后显式 close_attempt(TimedOut) 再重试，避免重放器替 worker 判定结果
+    - attempt.worker / operation.claimed_by 为软引用，不强制外键到 workers，注册行可短暂后于/先于引用存在
+    - 服务层编排（claim 循环、收割策略）未在本任务，留待调用方 crate
+  - Commit: （待推后填写）
 - [ ] F015 reconcile 服务、UNKNOWN 和人工核对（依赖 F014,F004）
 - [ ] F016 Capability Router、授权优先级、错误分类、熔断；T05/T06/T23（依赖 F004,F014）
 - [ ] F017 inbox/投影/outbox、事件序列、去重、缺口事件；T13（依赖 F006,F004）

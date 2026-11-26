@@ -12,6 +12,8 @@ workspace = true
 [dependencies]
 async-trait = "0.1"
 fishpond-domain = { path = "../domain" }
+hmac = "0.12"
+sha2 = "0.10"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }

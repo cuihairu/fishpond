@@ -8,6 +8,7 @@
 pub mod capability;
 pub mod contract;
 pub mod manifest;
+pub mod package;
 pub mod provider;
 pub mod result;
 pub mod version;
@@ -15,6 +16,7 @@ pub mod version;
 pub use capability::Capability;
 pub use contract::{CheckResult, ContractFixture, ContractReport, run_contract_suite};
 pub use manifest::{ManifestError, ProviderManifest};
+pub use package::{PackageError, ProviderPackage, canonical_manifest};
 pub use provider::{
     AuthorizeOutcome, CallContext, Provider, SendMessageOutcome, SendMessageRequest,
 };

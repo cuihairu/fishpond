@@ -258,10 +258,22 @@ async fn incident_listings_never_cross_tenants() {
         .list_incidents(&platform_wide, false)
         .await
         .expect("list wide");
-    assert_eq!(
-        scopeless.len(),
-        1,
-        "the platform-wide scope is its own bucket"
+    // The '' bucket is shared deployment-wide (other suites write to
+    // it concurrently), so assert the isolation property, not a count:
+    // the listing only ever returns rows of the scope that was asked.
+    assert!(
+        scopeless.iter().all(|row| row.tenant.is_empty()),
+        "the platform-wide listing never crosses scopes: {scopeless:?}"
+    );
+    assert!(
+        scopeless.iter().any(|row| row.id == "inc-z"),
+        "our own platform-wide row is in the bucket"
+    );
+    assert!(
+        !scopeless
+            .iter()
+            .any(|row| row.id == "inc-x" || row.id == "inc-y"),
+        "tenant rows never leak into the platform-wide listing"
     );
     assert!(
         store

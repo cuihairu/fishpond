@@ -560,6 +560,7 @@ dependencies = [
  "fishpond-domain",
  "fishpond-provider-mock",
  "fishpond-provider-sdk",
+ "fishpond-router",
  "fishpond-storage",
  "tokio",
 ]
@@ -595,6 +596,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "fishpond-domain",
+ "hmac",
+ "sha2 0.10.9",
  "tokio",
 ]
 

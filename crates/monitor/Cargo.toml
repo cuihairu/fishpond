@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 fishpond-provider-sdk = { path = "../provider-sdk" }
+fishpond-router = { path = "../router" }
 fishpond-storage = { path = "../storage" }
 
 [dev-dependencies]

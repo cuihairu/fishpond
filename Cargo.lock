@@ -679,6 +679,7 @@ name = "fishpond-telemetry"
 version = "0.1.0"
 dependencies = [
  "fishpond-domain",
+ "fishpond-events",
  "fishpond-monitor",
  "fishpond-runtime",
  "fishpond-storage",

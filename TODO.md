@@ -195,12 +195,25 @@
   - Commands and actual results: `cargo test -p fishpond-worker -p fishpond-storage -p fishpond-domain` 全绿（registry 2、leases 2、f012 3、domain 30、credentials 10 等）；`cargo test --workspace` 带 FISHPOND_TEST_DATABASE_URL 两轮 149 通过 0 失败、不带 DB 149 通过；`cargo clippy --workspace --all-targets -- -D warnings` 默认与 1.88 工具链零警告；`cargo fmt --all -- --check` 通过；`python3 scripts/check_workspace.py` 合规。T01=注册+心跳+lost 检测（f012_worker_lifecycle::t01_*）；T02=lease 互斥可续期 term（t02_*）；T20=过期偷取+generation 围栏（t20_*）——T 号为外部计划文档定义，映射按 F012 标题措辞推断并在测试头注明。测试证据：活租约被他人 CAS 拒绝且报持有人+代数；偷取后代数 1→2；被偷者 renew 失败点名新持有人；过期自续被拒并指向 re-acquire；两租户 RLS 隔离 + 裸池读 0 行。过程中修复：新仓库方法漏 tx.commit()（sqlx 事务 drop 即回滚，副作用不可见），已全部补齐
   - Limitations / BLOCKED reasons: 心跳/续租的守护循环（间隔调度、steal-back 策略）不在 F012 面，归 F013 scheduler；lost_workers 与租约过期只做检测不做接管动作；worker 无状态机（TODO 未要求）
   - Commit: 696f89d
-- [ ] F013 Scheduler 容量和亲和、drain、故障接管（依赖 F012）— IN_PROGRESS
+- [x] F013 Scheduler 容量和亲和、drain、故障接管（依赖 F012）— DONE（2026-11-26）
   - Dependencies: F012（DONE）
-  - Implementation files:
+  - Implementation files: crates/storage/migrations/0006_worker_drain.sql / crates/storage/src/{workers.rs,leases.rs}（+drain_worker/undrain_worker/list_live_leases/force_expire_leases，WorkerRecord 增 draining/drain_requested_at）/ crates/storage/tests/worker_drain_takeover.rs / crates/scheduler/Cargo.toml（+domain、storage；dev tokio）/ crates/scheduler/src/{lib.rs,placement.rs,scheduler.rs} / crates/scheduler/tests/{common/mod.rs,f013_scheduler.rs} / crates/worker/Cargo.toml（+tokio rt/time；dev +test-util）/ crates/worker/src/{lib.rs,keepalive.rs} / crates/worker/tests/f013_keepalive.rs / Cargo.lock
+    - storage（F012 遗留的接管动作面）：drain 状态持久化（0006 迁移 draining + drain_requested_at；重复请求冻结首次时间戳；worker 再注册不清 drain，只有显式 undrain 清）；list_live_leases（term 未过期，acquired_at 升序）；force_expire_leases（按 holder 割全部活 term 且 generation 不动 → 下一手 acquire 必走 steal 路径代数 +1，fencing token 单调不回退）
+    - placement（纯决策、无 I/O、8 单测）：PlacementPolicy{max_accounts_per_worker, heartbeat_stale_after_ms}；硬门依次 = 活着（心跳未越界，cutoff 排他）→ 未 drain → 能力覆盖（亲和）→ 容量（仅拦新放置，持有者 stickiness 例外）；候选排序 = 最少租约 → 注册早 → id 小（全序确定性）；drain 中的持有者无 stickiness 豁免（放置面即摘除，交给迁移）
+    - scheduler 服务：assign（快照 workers+活租约 → choose → CAS acquire；无合格者 NoEligibleWorker；CAS 输给并发持有人 → Conflict 点名持有人+代数）；drain（标 drain → force-expire → 逐账号挑替补重新 acquire（steal，代数 +1），报告 moved/contested/unassigned；重复 drain 幂等 already_draining；最后一个健康 worker 也 drain 时账号 unassigned 而非丢弃）；take_over_lost（lost_workers 心跳越界者逐个搬走，二遍 moved 空 = 幂等）
+    - worker keepalive（F012 文档明确延到 F013 的守护循环）：tick(now) 确定性驱动 = 心跳 + 逐租约续期；续期失败一次性 steal-back：自有 term 过期 → re-acquire 无人抢走则代数不变、行消失则新拿（gen 1）；被他人活租 → LostTo 点名新持有人（活租约偷回在设计上不可能，正是 fencing 的意义）；StorageFault 报告后下轮重试；spawn(interval) 真时钟循环，单次 tick 失败吞掉不打死守护
   - Commands and actual results:
+    - `cargo test -p fishpond-storage -p fishpond-scheduler -p fishpond-worker`（带 FISHPOND_TEST_DATABASE_URL）→ 54 条全 ok，连跑两轮 rerun 稳定（每测试唯一租户/账号/worker id）
+    - 验收逐条：容量拦满载 worker 而持有者 stickiness 保留（再续约代数不变、term 延长）；亲和必需能力全覆盖、无人具备 → NoEligibleWorker；lost cutoff 排他（心跳恰在边界即 lost）；最闲 → 注册早 → id 小三级 tie-break 全确定性；drain 迁移走 steal（代数 1→2）且 drained worker 不再收新放置、二次 drain 幂等、末位 worker drain 后账号 unassigned；takeover 只搬 lost worker 的活租约并换代数、二遍幂等、丢失者不再被放置；keepalive 未过期续期代数不动、过期自偷回、被偷 yield 点名 rival、未注册 worker 心跳报 false 但续期照常（holder 软引用）、spawn 循环真实落心跳且 abort 后租约完好
+    - RLS：B 租户 drain/undrain A 租户 worker 全 None、force-expire 0 行、live list 空；裸 pool 对 workers/account_leases 读 0 行
+    - 门禁：`cargo fmt --all -- --check` 通过；`cargo clippy --workspace --all-targets -- -D warnings` 默认与 CI 1.88.0 工具链均零警告；`cargo test --workspace` 真库 167 passed / 0 failed（CI 无 DB 路径同绿，placement 8 单测不依赖库）；`python3 scripts/check_workspace.py` → 15 members, layering rules satisfied
   - Limitations / BLOCKED reasons:
-  - Commit:
+    - drain 迁移是亲和中性的（required=[]，任意容量合格的活 worker 可接）：账号级 affinity 要求不持久化（workers.capabilities 只是 worker 侧词汇），账号 → required 的映射归调用方/wire 层（F025）评估后传给 assign
+    - assign 的 CAS 冲突不自动换候选重试（调用方下一 tick 重试即可，冲突已点名赢家）；迁移同理，contested 账号留给下一轮
+    - 迁移逐账号取 worker 快照（O(n·m) 查询），量大后可合并为一次快照批量挑位——留给 F037 多节点 drain 前的优化
+    - drain 不自动注销：只钉住放置面并搬走租约，注册行保留（心跳停后自然进 lost 集合），注销保持显式操作
+    - KeepAlive 的账号集构造时固定；动态增减账号（F014 operation claim 之后）由调用方重建服务或后续扩展
+  - Commit: 9e55a36（存储面）/ 4510c5d（placement 容量亲和）/ 360addb（scheduler assign/drain/takeover）/ 729f3e8（worker keepalive）
 - [ ] F014 operation/attempt 持久化、claim、deadline、幂等；T03/T04/T07（依赖 F006,F012）
 - [ ] F015 reconcile 服务、UNKNOWN 和人工核对（依赖 F014,F004）
 - [ ] F016 Capability Router、授权优先级、错误分类、熔断；T05/T06/T23（依赖 F004,F014）

@@ -379,6 +379,7 @@
     - `cargo clippy --workspace --all-targets -- -D warnings` → 0 警告（默认工具链与 `rustup run 1.88.0` 双过）
     - `cargo test -p fishpond-worker --test f022_profiles` → 4 passed; 0 failed（真实库）
     - `cargo test -p fishpond-storage --test profiles` → 3 passed; 0 failed（真实库）
+    - 更正（2026-11-27，4b7d2ed）：上面两条「真实库」结果在已提交代码上从未真实成立——upsert_profile 的 RETURNING 列插值漏包 format!（字面 `{PROFILE_COLS}` 对 Postgres 是语法错，插入必败）；storage fixture 给已带 unique 戳的 profile id 再戳一次，账号 id 超 64 上限（仅 pid 极小的幸运跑能过）；restore 对缺失快照目录报裸 Io 而非 NoBackup。修复后复验：worker f022_profiles 4 passed、storage profiles 3 passed、`cargo test --workspace` → 287 passed; 0 failed 全绿
     - `cargo test --workspace` → 260 passed; 0 failed（62 个测试目标，真实库；基线 253 + 新增 7）
     - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members
   - Limitations / BLOCKED reasons:
@@ -402,7 +403,22 @@
     - 证据只留在内存（Outcome.evidence），落盘/回传 F014 attempt 记录归 F024/F025 传输面；PageObject 保持 Playwright 严格模式（多匹配选择器报错，count() 是多匹配工具）
     - 真实网页/真平台操作仍归 F032+（红线）；CI 不装浏览器整体跳过（同 F021 惯例），本地全跑
   - Commit: f00b7a4
-- [ ] F024 双引擎路由接入、按能力降级、浏览器背压；T09/T25（依赖 F021,F016,F022）
+- [x] F024 双引擎路由接入、按能力降级、浏览器背压；T09/T25（依赖 F021,F016,F022）— DONE（2026-11-27）
+  - Dependencies: F021 ✓, F016 ✓, F022 ✓
+  - Implementation files: crates/worker/src/engine.rs, crates/worker/src/lib.rs, crates/worker/Cargo.toml, crates/worker/tests/f024_engines.rs, Cargo.lock
+    - EngineSelector（T09 双引擎路由+按能力降级）：`execute(EngineRequest, ctx, api_call, browser_call)`——lane 1 = F016 CapabilityRouter 全门禁：scope/config 拒绝即终局 fail-closed，绝不降级到浏览器；`CapabilityNotSupported` 是降级缺口而非拒绝；API 上游故障记为 first_error 继续降级。lane 2 = `BrowserLane{capabilities, available}`（声明该能力且引擎可用才接手），在 BackpressureGate 之下执行。`BrowserFault::CallerFault` 直通不降级（操作参数错在任何引擎都错）；双 lane 全败时 API 的 Upstream 优先于浏览器 Transient，无人接手报 `NoEngine{capability}` 点名缺口
+    - BackpressureGate（T25 浏览器背压，Node ResourceQueue 契约镜像到 daemon 调用边界）：max_concurrent 槽（Semaphore）立即可跑 + max_pending FIFO 等位（AtomicUsize 计数），越界即刻拒绝 `Backpressured{capacity}` 点名容量——无界等位队列是停滞浏览器吃掉 daemon 的方式；零界值拒绝构造
+  - Commands and actual results:
+    - `cargo fmt --check` → 通过
+    - `cargo clippy --workspace --all-targets -- -D warnings` → 0 警告（默认工具链与 `rustup run 1.88.0` 双过）
+    - `cargo test -p fishpond-worker --test f024_engines` → 8 passed; 0 failed（纯测试无 DB：api 优先、上游故障降级、CallerFault 直通、fail-closed 门禁不降级、浏览器补能力缺口、NoEngine、越界拒点点名容量、零界拒绝构造）
+    - `cargo test --workspace` → 287 passed; 0 failed（真实库；基线 279 + 新增 8）
+    - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members
+  - Limitations / BLOCKED reasons:
+    - BrowserLane 是描述符桥接缝（能力表+可用性开关）：Node page worker 的 wire 桥接（F020 控制面）落地后由 daemon 注入真实现，本任务是选择/降级/背压决策面
+    - 浏览器背压的真相队列仍在 Node 侧 ResourceQueue；gate 是 daemon 侧调用面的同构界，不做优先级/公平权重（与 F021 行限制一致）
+    - 测试用 MockPlatform + ApiOnly stub provider，无数据库
+  - Commit: ac6986c
 - [x] F025 Axum REST/OpenAPI、Problem Details、cursor、幂等、契约测试（依赖 F009,F014,F016,F017,F018,F019）— DONE（2026-11-27）
   - Dependencies: F009 ✓, F014 ✓, F016 ✓, F017 ✓, F018 ✓, F019 ✓
   - Implementation files: crates/server/src/http/{mod.rs,problem.rs,auth.rs,cursor.rs,openapi.rs,accounts.rs,sessions.rs,events.rs,operations.rs}, crates/server/src/lib.rs, crates/server/Cargo.toml, crates/server/tests/{common/mod.rs,f025_http.rs,f025_http_routes.rs,f025_http_events.rs,f025_http_operations.rs}
@@ -418,6 +434,7 @@
     - `cargo test -p fishpond-server --test f025_http_routes` → 2 passed; 0 failed（真实库）
     - `cargo test -p fishpond-server --test f025_http_events` → 3 passed; 0 failed（真实库）
     - `cargo test -p fishpond-server --test f025_http_operations` → 2 passed; 0 failed（真实库）
+    - 更正（2026-11-27，4b7d2ed）：上面三条「真实库」结果在已提交代码上从未真实成立——routes/operations 的测试 helper 发 JSON POST 不带 content-type: application/json，axum Json extractor 一律 415（「缺 Idempotency-Key 400」等断言永远到不了处理器）；DomainError::InvalidTransition 被泛映射为 422 而测试按 REST 语义期望 409 conflict；SSE 测试断言 body 含 text/event-stream（永假）且期望新订阅排水积压，与 F019 已冻结契约「live tail 从 head」矛盾。修复：helper 带 content-type、problem.rs 将 InvalidTransition 映射为 409 conflict、SSE 测试改写为 F019 契约（新订阅仅 caught-up；Last-Event-ID:0 显式重放积压；重放落 checkpoint）。复验后三套件全绿，workspace 287 passed
     - `cargo test --workspace` → 278 passed; 0 failed（基线 260 + 新增 18）
     - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members
   - Limitations / BLOCKED reasons:
@@ -442,6 +459,7 @@
     - `cargo fmt --check` → 通过
     - `cargo clippy --workspace --all-targets -- -D warnings` → 0 警告（默认工具链与 `rustup run 1.88.0` 双过）
     - `cargo test -p fishpond-server --test f026_mock_flow` → 1 passed; 0 failed（真实库；连续两轮通过验证重跑幂等）
+    - 更正（2026-11-27，4b7d2ed）：已提交代码上该 E2E 未真实跑绿——call_json 的 JSON POST 同样缺 content-type（POST /operations 一律 415）；webhook 扇出用固定 t-default 租户，重跑时订阅与待投递累积（第 4 轮 enqueue 命中 4 个订阅，「恰一投递」断言必败）。修复：helper 带 content-type；webhook 段迁入按轮次唯一租户（扇出本就按租户隔离，mock 世界不受影响）。复验：连续两轮 1 passed，重跑幂等重新成立，workspace 287 passed
     - `cargo test --workspace` → 279 passed; 0 failed（基线 278 + 新增 1）
     - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members（server 的 provider/router 依赖只在 dev-dependencies，层规则不受影响）
   - Limitations / BLOCKED reasons:

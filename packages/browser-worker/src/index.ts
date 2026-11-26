@@ -11,4 +11,5 @@ export * from "./conditions";
 export * from "./evidence";
 export * from "./page-object";
 export * from "./page-provider";
+export * from "./remote-page-provider";
 export * from "./resource-queue";

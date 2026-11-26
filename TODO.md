@@ -743,4 +743,4 @@
     - mcp 的 API key 今日只读 FISHPOND_API_KEY 环境变量（无 *_FILE 变体），值放 git 忽略的 deploy/secrets/mcp.env——compose 文件/仓库/日志无值；key 落 secret 文件待 mcp 面加 *_FILE 读取
     - server 二进制入口未落地（compose 注释已预留 serve 形状），控制面副本以 mcp HTTP 面承担；server 副本形状同模式
   - Commit: 9dc8f24（HA compose+脚本）, ca963d3（README 演练文档）
-- [ ] F044 外部受控 Browser Provider 接入（依赖 F041）
+- [~] F044 外部受控 Browser Provider 接入（依赖 F041）— IN_PROGRESS：RemotePageProvider（受控 origin 拉取 + setContent）实现与测试编写中

@@ -274,6 +274,12 @@ async fn backup_takes_and_releases_the_exclusive_lock() {
         blocked.to_string().contains(bob.as_str()),
         "conflict names the holder: {blocked}"
     );
+    // Bob steps aside so the next phase starts from a free lock (his
+    // grant outlives the operations below).
+    store
+        .release_profile_lock(&tenant, &id, &bob)
+        .await
+        .expect("bob releases");
 
     // Failure paths release the lock: after a failed backup (no
     // snapshot, restored into a fresh root fails with NoBackup) the

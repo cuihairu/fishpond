@@ -62,6 +62,10 @@ async fn call(
     if let Some(key) = key {
         builder = builder.header("authorization", format!("Bearer {key}"));
     }
+    if body.is_some() {
+        // Axum's Json extractor refuses a body without the header.
+        builder = builder.header("content-type", "application/json");
+    }
     let request = builder
         .body(Body::from(
             body.map(|value| value.to_string())

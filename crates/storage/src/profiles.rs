@@ -177,7 +177,7 @@ impl Store {
     pub async fn upsert_profile(&self, profile: &NewProfile<'_>) -> StorageResult<ProfileRecord> {
         let columns = seal_secret(profile.cipher, profile.secret)?;
         let mut tx = self.begin_tenant(profile.tenant).await?;
-        let row = sqlx::query(
+        let row = sqlx::query(&format!(
             "INSERT INTO profiles
                 (tenant_id, id, account_id, label, state, storage_path,
                  secret_nonce, secret_cipher, dek_nonce, wrapped_dek, kek_version,
@@ -194,8 +194,8 @@ impl Store {
                 kek_version = EXCLUDED.kek_version,
                 secret_fingerprint = EXCLUDED.secret_fingerprint,
                 updated_at = EXCLUDED.updated_at
-             RETURNING {PROFILE_COLS}",
-        )
+             RETURNING {PROFILE_COLS}"
+        ))
         .bind(profile.tenant.as_str())
         .bind(profile.id)
         .bind(profile.account_id.as_str())

@@ -259,9 +259,15 @@ impl ProfileManager {
                     id: profile_id.to_owned(),
                 })?;
             let snapshots = backup_root.join(profile_id);
-            let latest = latest_snapshot(&snapshots)
-                .map_err(|err| io_err("listing snapshots", &snapshots, err))?
-                .ok_or(ProfileError::NoBackup)?;
+            let latest = if snapshots.is_dir() {
+                latest_snapshot(&snapshots)
+                    .map_err(|err| io_err("listing snapshots", &snapshots, err))?
+                    .ok_or(ProfileError::NoBackup)?
+            } else {
+                // No snapshot directory means nothing was ever backed
+                // up — the same "no backup" contract as an empty one.
+                return Err(ProfileError::NoBackup);
+            };
             let manifest_path = latest.join(MANIFEST_NAME);
             let manifest = std::fs::read(&manifest_path)
                 .map_err(|err| io_err("reading the manifest", &manifest_path, err))?;

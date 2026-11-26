@@ -92,6 +92,10 @@ async fn call_json(
     if let Some(idem) = idempotency_key {
         builder = builder.header("idempotency-key", idem);
     }
+    if body.is_some() {
+        // Axum's Json extractor refuses a body without the header.
+        builder = builder.header("content-type", "application/json");
+    }
     let request = builder
         .body(Body::from(
             body.map(|value| value.to_string())
@@ -261,11 +265,19 @@ async fn mock_end_to_end_flow() {
     assert_eq!(authorized["credential_id"], credential_id.as_str());
 
     // ── Webhook 订阅（在发消息前，扇出才接得到） ────────────────
+    // The webhook phase runs in its own per-run tenant: fan-out is
+    // tenant-scoped, so the fixed mock tenant would pile up
+    // subscriptions (and due deliveries) across reruns.
+    let hook_tenant = common::unique_tenant("f026-hooks");
+    store
+        .upsert_tenant(&common::tenant_record(&hook_tenant, "f026-hooks"))
+        .await
+        .expect("hook tenant insert");
     let hooks = WebhookService::new(store.clone(), hook_cipher);
     let sub_id = unique_entity("sub", &token);
     hooks
         .subscribe(
-            &tenant,
+            &hook_tenant,
             &sub_id,
             "https://hooks.example.com/fishpond",
             SecretBox::new("whsec-flow"),
@@ -338,7 +350,7 @@ async fn mock_end_to_end_flow() {
 
     // ── Webhook fan-out + delivery ──────────────────────────────
     let delivery_ids = hooks
-        .enqueue(&tenant, first, ts(3_000))
+        .enqueue(&hook_tenant, first, ts(3_000))
         .await
         .expect("fan out");
     assert_eq!(delivery_ids.len(), 1, "one matching subscription");
@@ -346,7 +358,7 @@ async fn mock_end_to_end_flow() {
         calls: Mutex::new(Vec::new()),
     });
     let report = hooks
-        .deliver_due(&tenant, transport.as_ref(), ts(3_100), 60_000, 10)
+        .deliver_due(&hook_tenant, transport.as_ref(), ts(3_100), 60_000, 10)
         .await
         .expect("delivery pass");
     assert_eq!(report.delivered, 1, "{report:?}");

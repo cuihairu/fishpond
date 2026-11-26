@@ -42,7 +42,9 @@ async fn register(
     secret: &str,
     cipher: &CredentialCipher,
 ) -> fishpond_storage::ProfileRecord {
-    let account_id = unique_entity("acc", id);
+    // The profile id is already unique-stamped; prefix it instead of
+    // stamping again (double stamps overflow the id length cap).
+    let account_id = format!("acc-{id}");
     store
         .upsert_account(&account(&account_id, tenant, AccountState::Online, None))
         .await

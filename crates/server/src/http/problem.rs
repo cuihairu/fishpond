@@ -101,12 +101,9 @@ impl From<&ServiceError> for Problem {
                 "internal storage failure",
                 None,
             ),
-            ServiceError::Domain(err) => Problem::new(
-                "invalid",
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "invalid request",
-                Some(err.to_string()),
-            ),
+            // Domain errors share the mapping: a state-machine
+            // refusal is a conflict, the rest is invalid input.
+            ServiceError::Domain(err) => Problem::from(err),
         }
     }
 }
@@ -119,12 +116,24 @@ impl From<ServiceError> for Problem {
 
 impl From<&fishpond_domain::DomainError> for Problem {
     fn from(err: &fishpond_domain::DomainError) -> Self {
-        Problem::new(
-            "invalid",
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "invalid request",
-            Some(err.to_string()),
-        )
+        match err {
+            // A state-machine refusal conflicts with the resource's
+            // current state (RFC 9457), not with the request syntax.
+            fishpond_domain::DomainError::InvalidTransition { machine, from, to } => Problem::new(
+                "conflict",
+                StatusCode::CONFLICT,
+                "conflict",
+                Some(format!(
+                    "illegal {machine} state transition: {from} -> {to}"
+                )),
+            ),
+            _ => Problem::new(
+                "invalid",
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid request",
+                Some(err.to_string()),
+            ),
+        }
     }
 }
 

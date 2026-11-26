@@ -209,7 +209,9 @@ async fn events_stream_drains_replays_and_checkpoints() {
     let key = "key-f025-sse";
     append(&store, &tenant, "sse", 3).await;
 
-    // A fresh subscribe drains the backlog, then says caught-up.
+    // A fresh subscribe live-tails from the head (the F019 contract:
+    // "live tail starts at the head") — no backlog, just the
+    // terminal caught-up frame.
     let (status, stream) = call(
         &router,
         "GET",
@@ -219,7 +221,22 @@ async fn events_stream_drains_replays_and_checkpoints() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{stream}");
-    assert!(stream.contains("text/event-stream"), "{stream}");
+    assert!(
+        !stream.contains("id: 1\n") && stream.contains("event: caught-up"),
+        "live tail starts at the head, no backlog: {stream}"
+    );
+
+    // The backlog is a client-authoritative replay: an explicit
+    // Last-Event-ID drains it, then the caught-up terminal.
+    let (status, stream) = call(
+        &router,
+        "GET",
+        "/events/stream?consumer=drain",
+        Some(key),
+        &[("last-event-id", "0")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{stream}");
     for seq in 1..=3 {
         assert!(stream.contains(&format!("id: {seq}\n")), "{stream}");
     }
@@ -230,8 +247,8 @@ async fn events_stream_drains_replays_and_checkpoints() {
     );
     assert!(stream.contains("event: caught-up"), "{stream}");
 
-    // The drain persisted the checkpoint: a new subscribe with the
-    // same consumer starts at the head — nothing replayed.
+    // The replay persisted the checkpoint: a plain reconnect starts
+    // at the head — nothing replayed again.
     let (status, stream) = call(
         &router,
         "GET",

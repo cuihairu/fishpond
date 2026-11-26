@@ -61,6 +61,10 @@ async fn call(
     if let Some(idem) = idempotency_key {
         builder = builder.header("idempotency-key", idem);
     }
+    if body.is_some() {
+        // Axum's Json extractor refuses a body without the header.
+        builder = builder.header("content-type", "application/json");
+    }
     let request = builder
         .body(Body::from(
             body.map(|value| value.to_string())

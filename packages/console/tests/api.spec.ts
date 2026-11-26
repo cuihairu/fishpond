@@ -44,6 +44,12 @@ describe("classifyProblem", () => {
     expect(classifyProblem("https://fishpond.dev/problems/something-new")).toBe("other");
     expect(classifyProblem("https://elsewhere.example/problems/forbidden")).toBe("other");
   });
+
+  it("maps the slugs the server actually emits", () => {
+    expect(classifyProblem("https://fishpond.dev/problems/scope-denied")).toBe("forbidden");
+    expect(classifyProblem("https://fishpond.dev/problems/storage")).toBe("server");
+    expect(classifyProblem("https://fishpond.dev/problems/invalid-cursor")).toBe("invalid");
+  });
 });
 
 describe("ConsoleApi", () => {

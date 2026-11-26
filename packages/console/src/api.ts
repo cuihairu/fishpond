@@ -23,12 +23,15 @@ export type ProblemKind =
 
 const PROBLEM_CLASSES: Record<string, ProblemKind> = {
   forbidden: "forbidden",
+  "scope-denied": "forbidden",
   "not-found": "missing",
   invalid: "invalid",
+  "invalid-cursor": "invalid",
   conflict: "conflict",
   unauthorized: "unauthorized",
   "reauth-required": "reauth",
   "store-refused": "server",
+  storage: "server",
 };
 
 /** Maps a problem type URI to the console's failure classes. */
@@ -52,12 +55,12 @@ export class ApiError extends Error {
   }
 }
 
+/** Wire shape of the server's account DTO. */
 export interface AccountDto {
   id: string;
   platform: string;
   state: string;
-  note?: string;
-  created_at: number;
+  state_note?: string;
   updated_at: number;
 }
 
@@ -73,19 +76,31 @@ export interface SessionDto {
   expires_at?: number;
 }
 
+/** Wire shape of the server's operation summary. */
 export interface OperationDto {
   id: string;
   kind: string;
   state: string;
-  attempt_no?: number;
   created_at: number;
-  updated_at: number;
 }
 
+/** Wire shape of the server's event page item. */
 export interface EventDto {
+  id: string;
   seq: number;
   event_type: string;
+  account_id?: string;
   occurred_at: number;
+  payload?: unknown;
+}
+
+/** Wire shape of `GET /status`. */
+export interface StatusSummary {
+  online: number;
+  offline: number;
+  unknown: number;
+  disabled: number;
+  total: number;
 }
 
 export interface GrantDto {
@@ -172,11 +187,10 @@ export class ConsoleApi {
     return new ApiError(problem, classifyProblem(problem.type));
   }
 
-  // --- accounts -------------------------------------------------------
+  // --- accounts (no cursor: the list is small by construction) --------
 
-  listAccounts(cursor?: string): Promise<{ accounts: AccountDto[]; next_cursor?: string }> {
-    const suffix = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
-    return this.request("GET", `/accounts${suffix}`);
+  listAccounts(): Promise<{ accounts: AccountDto[] }> {
+    return this.request("GET", "/accounts");
   }
 
   getAccount(id: string): Promise<AccountDto> {
@@ -187,8 +201,8 @@ export class ConsoleApi {
     return this.request("POST", "/accounts", { body });
   }
 
-  setAccountState(id: string, state: string): Promise<AccountDto> {
-    return this.request("POST", `/accounts/${encodeURIComponent(id)}/state`, { body: { state } });
+  setAccountState(id: string, body: { state: string; note?: string }): Promise<AccountDto> {
+    return this.request("POST", `/accounts/${encodeURIComponent(id)}/state`, { body });
   }
 
   // --- sessions -------------------------------------------------------
@@ -206,7 +220,16 @@ export class ConsoleApi {
     return this.request("POST", "/sessions", { body });
   }
 
-  transitionSession(id: string, body: { action: string; note?: string }): Promise<SessionDto> {
+  transitionSession(
+    id: string,
+    body: {
+      action: string;
+      note?: string;
+      credential_id?: string;
+      credential_version?: number;
+      expires_at?: number;
+    },
+  ): Promise<SessionDto> {
     return this.request("POST", `/sessions/${encodeURIComponent(id)}/transition`, { body });
   }
 
@@ -248,7 +271,7 @@ export class ConsoleApi {
     return this.request("GET", `/events${suffix}`);
   }
 
-  status(): Promise<Record<string, unknown>> {
+  status(): Promise<StatusSummary> {
     return this.request("GET", "/status");
   }
 

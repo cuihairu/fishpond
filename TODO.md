@@ -248,7 +248,7 @@
     - reap 对无 worker 的在途 attempt 只跳过（close CAS 绑定 holder）；该形态仅可能由手插行产生，claim 恒写 worker
     - 人工核对只允许 ONLINE/OFFLINE（人不能"确认未验证"）；核对记录走审计表，账号行保持域不变量（确认态无 note）
     - reconcile 编排循环（定时 tick、全量账号扫描入口）未在本任务，留给调度面/F025 wire 层组装
-  - Commit: （待推后填写）
+  - Commit: 85c4b3f
 - [ ] F016 Capability Router、授权优先级、错误分类、熔断；T05/T06/T23（依赖 F004,F014）
 - [ ] F017 inbox/投影/outbox、事件序列、去重、缺口事件；T13（依赖 F006,F004）
 - [ ] F018 Webhook 订阅、签名、SSRF、delivery 重试/重投；T14/T17（依赖 F017,F007）

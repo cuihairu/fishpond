@@ -270,7 +270,12 @@ pub fn document() -> serde_json::Value {
                 "post": {
                     "operationId": "verifyTakeover",
                     "summary": "Verify an operator takeover token by possession (X-Takeover-Token header; no bearer key)",
-                    "parameters": [],
+                    "parameters": [
+                        { "name": "X-Takeover-Token", "in": "header", "required": true,
+                          "schema": { "type": "string" },
+                          "description": "The operator takeover token (`fp_tk_…`); \
+                                          possession of the token is the credential" }
+                    ],
                     "responses": {
                         "200": { "description": "What the token proves", "content": {
                             "application/json": { "schema": { "type": "object", "required": ["grant_id", "tenant", "account", "session", "operator", "expires_at"], "properties": {

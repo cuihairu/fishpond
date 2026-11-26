@@ -119,12 +119,28 @@ async fn openapi_document_is_served_and_contract_frozen() {
         "/operations/{id}",
         "/operations/{id}/claim",
         "/operations/{id}/attempts/{attempt_id}/close",
+        "/sessions/{id}",
+        "/sessions/{id}/transition",
+        "/sessions/{id}/takeover",
+        "/sessions/{id}/takeover/{grant_id}",
+        "/takeover/verify",
     ] {
         assert!(
             doc["paths"].get(path).is_some(),
             "path {path} missing from the document"
         );
     }
+    // The possession path must document its credential header so SDK
+    // generators can see it.
+    let verify = &doc["paths"]["/takeover/verify"]["post"];
+    let header = verify["parameters"]
+        .as_array()
+        .expect("verify parameters")
+        .iter()
+        .find(|parameter| parameter["name"] == "X-Takeover-Token")
+        .expect("X-Takeover-Token parameter documented");
+    assert_eq!(header["in"], "header");
+    assert_eq!(header["required"], true);
     assert_eq!(
         doc["components"]["schemas"]["Problem"]["properties"]["status"]["type"],
         "integer"

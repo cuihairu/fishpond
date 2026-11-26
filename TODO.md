@@ -603,7 +603,7 @@
     - verify 是无速率限制的查表端点；暴力猜 256-bit token 不可行，但限流仍建议归控制面加固任务
     - release 只回 AUTHORIZED 不复活 actor（F011 非对称语义不变）
   - Commit: 961bf36, d27b809, d1c46dd
-- [ ] F035 Vue Console 各管理页、权限及 UNKNOWN 正确展示（依赖 F025,F027,F034）
+- [ ] F035 Vue Console 各管理页、权限及 UNKNOWN 正确展示（依赖 F025,F027,F034）— IN_PROGRESS（2026-11-27：api 客户端与展示规则先行）
 - [ ] F036 从 OpenAPI 生成 Python/TS/Go SDK（依赖 F025）
 - [ ] F037 多节点部署、Profile 安全迁移、租户隔离、节点 drain（依赖 F013,F024,F029）
 - [ ] F038 授权测试环境 Provider 灰度、契约回归与故障 runbook（依赖 F028,F030,F032,F033）

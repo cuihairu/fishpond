@@ -371,7 +371,23 @@
     - 队列只限并发数不做优先级/公平权重：F024 背压如需分级再扩
     - 进程内单例浏览器；多浏览器池（多版本并存）归 F028 灰度面
   - Commit: 1f0861b
-- [ ] F022 Profile Manager、独占锁、存储、备份/恢复、销毁；T11/T12（依赖 F021,F008,F012）
+- [x] F022 Profile Manager、独占锁、存储、备份/恢复、销毁；T11/T12（依赖 F021,F008,F012）
+  - Dependencies: F021 ✓(1f0861b), F008 ✓, F012 ✓
+  - Implementation files: crates/storage/migrations/0011_profiles.sql, crates/storage/src/profiles.rs, crates/storage/src/lib.rs, crates/storage/tests/profiles.rs, crates/worker/src/profile.rs, crates/worker/src/lib.rs, crates/worker/Cargo.toml, crates/worker/tests/f022_profiles.rs
+  - Commands and actual results:
+    - `cargo fmt --check` → 通过（0 输出）
+    - `cargo clippy --workspace --all-targets -- -D warnings` → 0 警告（默认工具链与 `rustup run 1.88.0` 双过）
+    - `cargo test -p fishpond-worker --test f022_profiles` → 4 passed; 0 failed（真实库）
+    - `cargo test -p fishpond-storage --test profiles` → 3 passed; 0 failed（真实库）
+    - `cargo test --workspace` → 260 passed; 0 failed（62 个测试目标，真实库；基线 253 + 新增 7）
+    - `python3 scripts/check_workspace.py` → workspace structure ok: 15 members
+  - Limitations / BLOCKED reasons:
+    - T11/T12 按任务标题映射（同 F012 的 T-notes 惯例）：T11=独占锁（profile_locks CAS 租约围栏），T12=备份/恢复/销毁生命周期
+    - profiles 表只存元数据+可选 F008 密封口令；profile 内容只在磁盘，永不入库
+    - 锁语义完全复用 F012 CAS 纪律：单持有人、generation 围栏、过期即偷锁、release 后重获 generation 重置为 1（已记录）；destroyed 墓碑永不可锁
+    - ProfileManager 备份：`backup_root/<profile_id>/<unix_ms>/` 快照 + manifest.json（逐文件 SHA-256，digest=排序 path\thex 行的 SHA-256），digest 记入 DB；恢复先验签后动盘（漂移报 Tampered 命名相对路径），最新快照优先；销毁 wipe 目录+墓碑
+    - 快照为整目录复制（非增量/无压缩）；跨机磁盘由调用方保证 backup_root 可达；真连接/真浏览器 profile 目录属 F032+
+  - Commit: 7e650f0
 - [ ] F023 Page Object 操作、前后条件和结果证据；T08（依赖 F021,F014）
 - [ ] F024 双引擎路由接入、按能力降级、浏览器背压；T09/T25（依赖 F021,F016,F022）
 - [ ] F025 Axum REST/OpenAPI、Problem Details、cursor、幂等、契约测试（依赖 F009,F014,F016,F017,F018,F019）

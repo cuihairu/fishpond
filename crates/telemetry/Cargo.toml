@@ -1,0 +1,21 @@
+[package]
+name = "fishpond-telemetry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Observability plane: redaction scan, metrics, queue depth, resource alerts"
+
+[dependencies]
+fishpond-domain = { path = "../domain" }
+fishpond-monitor = { path = "../monitor" }
+fishpond-runtime = { path = "../runtime" }
+fishpond-storage = { path = "../storage" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+
+[lints]
+workspace = true

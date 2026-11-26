@@ -25,6 +25,7 @@ EXPECTED_MEMBERS = {
     "fishpond-operations",
     "fishpond-events",
     "fishpond-monitor",
+    "fishpond-telemetry",
     "fishpond-mcp",
     "fishpond-server",
     "fishpond-worker",
@@ -85,6 +86,20 @@ def check_mcp(internal: set[str]) -> None:
         )
 
 
+# F030: the telemetry plane is a service-seam crate — never on the
+# delivery/front layers.
+TELEMETRY_FORBIDDEN = {"fishpond-server", "fishpond-worker", "fishpond-cli"}
+
+
+def check_telemetry(internal: set[str]) -> None:
+    bad = internal & TELEMETRY_FORBIDDEN
+    if bad:
+        errors.append(
+            f"fishpond-telemetry depends on {sorted(bad)}: F030 forbids "
+            "server/worker/cli in telemetry"
+        )
+
+
 def main() -> int:
     # Rule 1: workspace member set must equal the §3.2 list exactly.
     # Cargo declares members as directory paths, so compare paths against the
@@ -128,6 +143,8 @@ def main() -> int:
             check_provider(name, internal)
         if name == "fishpond-mcp":
             check_mcp(internal)
+        if name == "fishpond-telemetry":
+            check_telemetry(internal)
 
     for err in errors:
         print(f"ERROR: {err}", file=sys.stderr)

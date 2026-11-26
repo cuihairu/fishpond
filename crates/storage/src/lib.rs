@@ -14,6 +14,7 @@
 pub mod authz;
 pub mod credentials;
 pub mod dburl;
+pub mod depth;
 pub mod error;
 pub mod events;
 pub mod leases;

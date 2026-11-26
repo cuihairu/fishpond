@@ -603,7 +603,26 @@
     - verify 是无速率限制的查表端点；暴力猜 256-bit token 不可行，但限流仍建议归控制面加固任务
     - release 只回 AUTHORIZED 不复活 actor（F011 非对称语义不变）
   - Commit: 961bf36, d27b809, d1c46dd
-- [ ] F035 Vue Console 各管理页、权限及 UNKNOWN 正确展示（依赖 F025,F027,F034）— IN_PROGRESS（2026-11-27：api 客户端与展示规则先行）
+- [x] F035 Vue Console 各管理页、权限及 UNKNOWN 正确展示（依赖 F025,F027,F034）— DONE（2026-11-27）
+  - Dependencies: F025 DONE, F027 DONE, F034 DONE
+  - Implementation files:
+    - packages/console/src/api.ts（ConsoleApi：可注入 key getter 的 bearer 注入、JSON body、非 2xx 一律解析 RFC 9457 problem 文档并分类（ApiError.problem/kind）；wire DTO 对齐服务端真实形状（AccountDto 无 created_at、scope-denied/storage/invalid-cursor 真实 slug、accounts 列表无游标、operation 四字段、event 含 id/seq/payload）；verifyTakeover 走 X-Takeover-Token 持有路径）
+    - packages/console/src/present.ts（三台状态机的 tone 视图：UNKNOWN 独立 observe tone 且必带观测备注、AWAITING_CONFIRMATION observe、终端会话态 dead、操作终态 done 而非存活；accountActions/sessionActions 逐字对齐 crates/domain/src/state.rs 转移表与 F025 REST 动词；permissionView 输出 can/missing；describeError 把 ApiError 分类翻成操作员文案；机器外状态名一律 throw，页面用 badge() 兜底防渲染崩溃）
+    - packages/console/src/App.vue + src/pages/{Status,Accounts,Sessions,Operations,Events}Page.vue（手写 tab 导航零新运行时依赖；密钥只进本浏览器 sessionStorage 且 type=password，不落日志；状态页 /healthz+/status 计数卡+密钥权限面；账户页注册+按转移表出按钮、UNKNOWN 目标强制行内备注输入；会话页状态动作+接管面板（operator+TTL 签发、令牌仅显示一次横幅+复制、grant 审计表含尾提示与释放）+无密钥验证框；操作/事件页列表与游标加载）
+    - packages/console/src/style.css（tone 徽章类与面板样式）
+    - packages/console/{package.json,eslint.config.js,env.d.ts}（新增 test=vitest run；build 升级 vue-tsc --noEmit && vite build 类型门禁；devDeps vitest/@vue/test-utils/happy-dom/vue-tsc——运行时依赖仍仅 vue）
+    - packages/console/tests/{api,present,app}.spec.ts（客户端契约、展示规则、挂载外壳五例：UNKNOWN observe 徽章+备注、TAKEN_OVER 只出合法动作、接管面板列活 grant、权限面点名缺 scope）
+  - Commands and actual results:
+    - `pnpm --filter @fishpond/console test` → 28 通过（api 9 + present 14 + app 挂载 5），首跑全绿
+    - `pnpm --filter @fishpond/console lint` → eslint 零告警
+    - `pnpm --filter @fishpond/console build` → vue-tsc --noEmit 通过 + vite build 成功（87.53 kB js / 2.20 kB css）
+    - `pnpm -r run lint && pnpm -r run test && pnpm -r run build`（workspace 级）→ browser-worker 18 + console 28 全通过、双包 lint 干净、构建成功
+  - Limitations / BLOCKED reasons:
+    - 接管期间驱动浏览器会话的实时通道（页面代理/CDP 中继）仍未实现——依赖 F033（BLOCKED 待授权）；面板目前覆盖签发/审计/释放/验证
+    - 密钥 scopes 无法从控制面反查（无 whoami 端点），权限面按操作员声明渲染，越权时以 403 problem 文案实时呈现；whoami/作用域自省归后续控制面任务
+    - 事件页只做 REST 游标翻页；SSE 实时流接入（/events/stream）归后续增量
+    - authorize 动作的 credential_id 由操作员手工粘贴，凭据自动注入归 F033 网页操作面
+  - Commit: 0b3bc10, 0e1c1f4, a4db1cb
 - [ ] F036 从 OpenAPI 生成 Python/TS/Go SDK（依赖 F025）
 - [ ] F037 多节点部署、Profile 安全迁移、租户隔离、节点 drain（依赖 F013,F024,F029）
 - [ ] F038 授权测试环境 Provider 灰度、契约回归与故障 runbook（依赖 F028,F030,F032,F033）

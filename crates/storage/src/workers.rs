@@ -29,6 +29,11 @@ pub struct WorkerRecord {
     pub last_heartbeat_at: UnixMillis,
     /// Last row update instant.
     pub updated_at: UnixMillis,
+    /// Whether the worker is draining (F013): no new placements, live
+    /// leases migrated away.
+    pub draining: bool,
+    /// When the drain was first requested (`None` when never drained).
+    pub drain_requested_at: Option<UnixMillis>,
 }
 
 /// A worker registration.
@@ -61,7 +66,7 @@ impl Store {
                  last_heartbeat_at = $5,
                  updated_at = $5
              RETURNING id, tenant_id, name, capabilities, registered_at,
-                       last_heartbeat_at, updated_at",
+                       last_heartbeat_at, updated_at, draining, drain_requested_at",
         )
         .bind(worker.id.as_str())
         .bind(worker.tenant.as_str())
@@ -106,7 +111,7 @@ impl Store {
         let mut tx = self.begin_tenant(tenant).await?;
         let row = sqlx::query(
             "SELECT id, tenant_id, name, capabilities, registered_at,
-                    last_heartbeat_at, updated_at
+                    last_heartbeat_at, updated_at, draining, drain_requested_at
              FROM workers WHERE id = $1",
         )
         .bind(id.as_str())
@@ -126,7 +131,7 @@ impl Store {
         let mut tx = self.begin_tenant(tenant).await?;
         let rows = sqlx::query(
             "SELECT id, tenant_id, name, capabilities, registered_at,
-                    last_heartbeat_at, updated_at
+                    last_heartbeat_at, updated_at, draining, drain_requested_at
              FROM workers ORDER BY registered_at, id",
         )
         .fetch_all(&mut *tx)
@@ -145,7 +150,7 @@ impl Store {
         let mut tx = self.begin_tenant(tenant).await?;
         let rows = sqlx::query(
             "SELECT id, tenant_id, name, capabilities, registered_at,
-                    last_heartbeat_at, updated_at
+                    last_heartbeat_at, updated_at, draining, drain_requested_at
              FROM workers
              WHERE last_heartbeat_at <= $1
              ORDER BY last_heartbeat_at, id",
@@ -155,6 +160,55 @@ impl Store {
         .await?;
         tx.commit().await?;
         rows.iter().map(map_worker).collect()
+    }
+
+    /// Marks a worker as draining (F013) at `at`. Idempotent: a second
+    /// request keeps the original `drain_requested_at` and returns the
+    /// unchanged record. `Ok(false)` when the worker is unknown.
+    pub async fn drain_worker(
+        &self,
+        tenant: &TenantId,
+        id: &WorkerId,
+        at: UnixMillis,
+    ) -> StorageResult<Option<WorkerRecord>> {
+        let mut tx = self.begin_tenant(tenant).await?;
+        let row = sqlx::query(
+            "UPDATE workers SET draining = TRUE,
+                                drain_requested_at = COALESCE(drain_requested_at, $3)
+             WHERE id = $1 AND tenant_id = $2
+             RETURNING id, tenant_id, name, capabilities, registered_at,
+                       last_heartbeat_at, updated_at, draining, drain_requested_at",
+        )
+        .bind(id.as_str())
+        .bind(tenant.as_str())
+        .bind(at.as_millis())
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        row.as_ref().map(map_worker).transpose()
+    }
+
+    /// Cancels a drain: the worker accepts new placements again. The
+    /// `drain_requested_at` stamp is cleared too, so the next drain is a
+    /// fresh request. `Ok(false)` when the worker is unknown.
+    pub async fn undrain_worker(
+        &self,
+        tenant: &TenantId,
+        id: &WorkerId,
+    ) -> StorageResult<Option<WorkerRecord>> {
+        let mut tx = self.begin_tenant(tenant).await?;
+        let row = sqlx::query(
+            "UPDATE workers SET draining = FALSE, drain_requested_at = NULL
+             WHERE id = $1 AND tenant_id = $2
+             RETURNING id, tenant_id, name, capabilities, registered_at,
+                       last_heartbeat_at, updated_at, draining, drain_requested_at",
+        )
+        .bind(id.as_str())
+        .bind(tenant.as_str())
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        row.as_ref().map(map_worker).transpose()
     }
 
     /// Removes the worker's registration; `Ok(false)` when unknown.
@@ -181,5 +235,10 @@ fn map_worker(row: &sqlx::postgres::PgRow) -> StorageResult<WorkerRecord> {
         registered_at: UnixMillis::from_millis(row.try_get::<i64, _>("registered_at")?)?,
         last_heartbeat_at: UnixMillis::from_millis(row.try_get::<i64, _>("last_heartbeat_at")?)?,
         updated_at: UnixMillis::from_millis(row.try_get::<i64, _>("updated_at")?)?,
+        draining: row.try_get("draining")?,
+        drain_requested_at: row
+            .try_get::<Option<i64>, _>("drain_requested_at")?
+            .map(UnixMillis::from_millis)
+            .transpose()?,
     })
 }

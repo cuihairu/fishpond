@@ -195,7 +195,12 @@
   - Commands and actual results: `cargo test -p fishpond-worker -p fishpond-storage -p fishpond-domain` 全绿（registry 2、leases 2、f012 3、domain 30、credentials 10 等）；`cargo test --workspace` 带 FISHPOND_TEST_DATABASE_URL 两轮 149 通过 0 失败、不带 DB 149 通过；`cargo clippy --workspace --all-targets -- -D warnings` 默认与 1.88 工具链零警告；`cargo fmt --all -- --check` 通过；`python3 scripts/check_workspace.py` 合规。T01=注册+心跳+lost 检测（f012_worker_lifecycle::t01_*）；T02=lease 互斥可续期 term（t02_*）；T20=过期偷取+generation 围栏（t20_*）——T 号为外部计划文档定义，映射按 F012 标题措辞推断并在测试头注明。测试证据：活租约被他人 CAS 拒绝且报持有人+代数；偷取后代数 1→2；被偷者 renew 失败点名新持有人；过期自续被拒并指向 re-acquire；两租户 RLS 隔离 + 裸池读 0 行。过程中修复：新仓库方法漏 tx.commit()（sqlx 事务 drop 即回滚，副作用不可见），已全部补齐
   - Limitations / BLOCKED reasons: 心跳/续租的守护循环（间隔调度、steal-back 策略）不在 F012 面，归 F013 scheduler；lost_workers 与租约过期只做检测不做接管动作；worker 无状态机（TODO 未要求）
   - Commit: 696f89d
-- [ ] F013 Scheduler 容量和亲和、drain、故障接管（依赖 F012）
+- [ ] F013 Scheduler 容量和亲和、drain、故障接管（依赖 F012）— IN_PROGRESS
+  - Dependencies: F012（DONE）
+  - Implementation files:
+  - Commands and actual results:
+  - Limitations / BLOCKED reasons:
+  - Commit:
 - [ ] F014 operation/attempt 持久化、claim、deadline、幂等；T03/T04/T07（依赖 F006,F012）
 - [ ] F015 reconcile 服务、UNKNOWN 和人工核对（依赖 F014,F004）
 - [ ] F016 Capability Router、授权优先级、错误分类、熔断；T05/T06/T23（依赖 F004,F014）

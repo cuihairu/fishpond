@@ -202,6 +202,53 @@ impl Store {
             None => Ok(None),
         }
     }
+
+    /// Every live lease of `tenant` at `at` (term not yet expired),
+    /// oldest acquisition first — the scheduler's placement input (F013).
+    pub async fn list_live_leases(
+        &self,
+        tenant: &TenantId,
+        at: UnixMillis,
+    ) -> StorageResult<Vec<AccountLease>> {
+        let mut tx = self.begin_tenant(tenant).await?;
+        let rows = sqlx::query(
+            "SELECT tenant_id, account_id, holder, generation, expires_at, acquired_at
+             FROM account_leases
+             WHERE tenant_id = $1 AND expires_at > $2
+             ORDER BY acquired_at, account_id",
+        )
+        .bind(tenant.as_str())
+        .bind(at.as_millis())
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        rows.iter().map(map_lease).collect()
+    }
+
+    /// Force-expires every live term `holder` still holds — the takeover
+    /// action behind drain and lost-worker recovery (F013). Terms end at
+    /// `at` without touching `generation`, so the next acquire takes the
+    /// steal path and the fencing token keeps rising. Returns how many
+    /// live terms were cut (idempotent: re-running cuts nothing).
+    pub async fn force_expire_leases(
+        &self,
+        tenant: &TenantId,
+        holder: &WorkerId,
+        at: UnixMillis,
+    ) -> StorageResult<u64> {
+        let mut tx = self.begin_tenant(tenant).await?;
+        let result = sqlx::query(
+            "UPDATE account_leases SET expires_at = $3
+             WHERE tenant_id = $1 AND holder = $2 AND expires_at > $3",
+        )
+        .bind(tenant.as_str())
+        .bind(holder.as_str())
+        .bind(at.as_millis())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(result.rows_affected())
+    }
 }
 
 fn map_lease(row: &sqlx::postgres::PgRow) -> StorageResult<AccountLease> {

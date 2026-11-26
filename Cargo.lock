@@ -490,6 +490,12 @@ version = "0.1.0"
 [[package]]
 name = "fishpond-events"
 version = "0.1.0"
+dependencies = [
+ "fishpond-domain",
+ "fishpond-storage",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "fishpond-mcp"

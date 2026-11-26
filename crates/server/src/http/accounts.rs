@@ -197,6 +197,57 @@ pub async fn set_state(
     Ok(Json(AccountDto::from(account)))
 }
 
+/// The deletion summary wire DTO (F040): what one account deletion
+/// removed, counted per table.
+#[derive(Debug, Serialize)]
+pub struct DeletedAccountDto {
+    /// Deleted conversations (their messages count separately).
+    pub conversations: u64,
+    /// Deleted messages.
+    pub messages: u64,
+    /// Deleted takeover grants.
+    pub grants: u64,
+    /// Deleted authorization sessions.
+    pub sessions: u64,
+    /// Deleted account leases.
+    pub leases: u64,
+    /// Deleted profiles.
+    pub profiles: u64,
+}
+
+impl From<fishpond_storage::DeletedAccount> for DeletedAccountDto {
+    fn from(removed: fishpond_storage::DeletedAccount) -> Self {
+        DeletedAccountDto {
+            conversations: removed.conversations,
+            messages: removed.messages,
+            grants: removed.grants,
+            sessions: removed.sessions,
+            leases: removed.leases,
+            profiles: removed.profiles,
+        }
+    }
+}
+
+/// `DELETE /accounts/{id}` — removes the account with every session,
+/// conversation, message, takeover grant, lease and profile in one
+/// transaction. Observation history survives as the audit trail and an
+/// `account.deleted` event records the counts; 404 when the id is
+/// absent or foreign.
+pub async fn delete(
+    State(state): State<AppState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Result<Json<DeletedAccountDto>, Problem> {
+    require(&caller, "accounts:write")?;
+    let account_id = parse_account_id(&id)?;
+    let removed = state
+        .accounts
+        .delete(&caller.tenant, &account_id, super::now())
+        .await
+        .map_err(|err| Problem::from(&err))?;
+    Ok(Json(DeletedAccountDto::from(removed)))
+}
+
 /// `GET /status` — the tenant's account counts by state.
 pub async fn status(
     State(state): State<AppState>,

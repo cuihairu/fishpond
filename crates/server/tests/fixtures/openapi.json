@@ -206,6 +206,37 @@
         ],
         "type": "object"
       },
+      "DeletedAccount": {
+        "properties": {
+          "conversations": {
+            "type": "integer"
+          },
+          "grants": {
+            "type": "integer"
+          },
+          "leases": {
+            "type": "integer"
+          },
+          "messages": {
+            "type": "integer"
+          },
+          "profiles": {
+            "type": "integer"
+          },
+          "sessions": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "conversations",
+          "messages",
+          "grants",
+          "sessions",
+          "leases",
+          "profiles"
+        ],
+        "type": "object"
+      },
       "Event": {
         "properties": {
           "account_id": {
@@ -746,6 +777,71 @@
       }
     },
     "/accounts/{id}": {
+      "delete": {
+        "operationId": "deleteAccount",
+        "parameters": [
+          {
+            "description": "Resource id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedAccount"
+                }
+              }
+            },
+            "description": "What the cascade removed"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Missing or unknown key"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Absent or foreign resource"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "scope": "accounts:write"
+          }
+        ],
+        "summary": "Delete an account with its sessions, conversations, messages, grants, leases and profiles (observation history survives as audit trail)"
+      },
       "get": {
         "operationId": "getAccount",
         "parameters": [

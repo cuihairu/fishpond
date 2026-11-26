@@ -295,3 +295,70 @@ async fn services_are_tenant_scoped_and_never_echo_secrets() {
     let text = format!("{not_found}{err}{not_found:?}{err:?}");
     assert!(!text.contains(secret), "error text leaked a secret: {text}");
 }
+
+#[tokio::test]
+async fn delete_cascades_reports_counts_and_stays_tenant_scoped() {
+    let Some(store) = gated().await else {
+        eprintln!("skip: {ENV} is not set (CI has no database)");
+        return;
+    };
+    let tenant_a = unique_tenant("svc-dela");
+    let tenant_b = unique_tenant("svc-delb");
+    store
+        .upsert_tenant(&tenant_record(&tenant_a, "A"))
+        .await
+        .unwrap();
+    store
+        .upsert_tenant(&tenant_record(&tenant_b, "B"))
+        .await
+        .unwrap();
+    let accounts_a = Accounts::new(store.clone());
+    let accounts_b = Accounts::new(store.clone());
+    let id_a = AccountId::parse(unique_entity("acc", "svc-dela")).unwrap();
+    let id_b = AccountId::parse(unique_entity("acc", "svc-delb")).unwrap();
+    accounts_a
+        .register(&tenant_a, id_a.clone(), "mock", ts(1_000))
+        .await
+        .unwrap();
+    accounts_b
+        .register(&tenant_b, id_b.clone(), "mock", ts(1_000))
+        .await
+        .unwrap();
+
+    // One session under tenant A's account so the summary counts it.
+    let session = AuthSessionId::parse(unique_entity("sess", "svc-del")).unwrap();
+    Sessions::new(store.clone())
+        .start(&tenant_a, session, id_a.clone(), ts(2_000), None)
+        .await
+        .unwrap();
+
+    let removed = accounts_a
+        .delete(&tenant_a, &id_a, ts(9_000))
+        .await
+        .unwrap();
+    assert_eq!(removed.sessions, 1, "{removed:?}");
+    assert_eq!(removed.grants, 0);
+    assert_eq!(removed.profiles, 0);
+
+    // The deleted account is gone for its own tenant; the other
+    // tenant's same-scope account is untouched.
+    let gone = accounts_a.get(&tenant_a, &id_a).await.unwrap_err();
+    assert!(matches!(gone, ServiceError::NotFound { .. }), "{gone}");
+    assert!(accounts_b.get(&tenant_b, &id_b).await.is_ok());
+
+    // A foreign tenant gets NotFound — never a delete — and repeating
+    // the deletion reports the same.
+    let foreign = accounts_b
+        .delete(&tenant_b, &id_a, ts(9_000))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(foreign, ServiceError::NotFound { .. }),
+        "{foreign}"
+    );
+    let again = accounts_a
+        .delete(&tenant_a, &id_a, ts(9_000))
+        .await
+        .unwrap_err();
+    assert!(matches!(again, ServiceError::NotFound { .. }), "{again}");
+}

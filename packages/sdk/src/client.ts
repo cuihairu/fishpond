@@ -59,6 +59,14 @@ export interface CreatedOperation {
   /** true when the key returned the original, not new work */
   replayed: boolean;
 }
+export interface DeletedAccount {
+  conversations: number;
+  grants: number;
+  leases: number;
+  messages: number;
+  profiles: number;
+  sessions: number;
+}
 export interface Event {
   account_id?: string;
   event_type: string;
@@ -296,6 +304,13 @@ export class FishpondClient {
     return this.request<CreatedOperation>("POST", path, {
       headers,
       body,
+    });
+  }
+
+  /** Delete an account with its sessions, conversations, messages, grants, leases and profiles (observation history survives as audit trail) */
+  async deleteAccount(id: string): Promise<DeletedAccount> {
+    const path = `/accounts/${encodeURIComponent(id)}`;
+    return this.request<DeletedAccount>("DELETE", path, {
     });
   }
 

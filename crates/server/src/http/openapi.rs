@@ -143,6 +143,22 @@ fn probe_paths() -> serde_json::Value {
                     } },
                     "404": not_found
                 }
+            },
+            "delete": {
+                "operationId": "deleteAccount",
+                "summary": "Delete an account with its sessions, conversations, \
+                            messages, grants, leases and profiles (observation \
+                            history survives as audit trail)",
+                "security": [{ "bearerAuth": [] }, { "scope": "accounts:write" }],
+                "parameters": [path_param],
+                "responses": {
+                    "200": { "description": "What the cascade removed", "content": {
+                        "application/json": { "schema": { "$ref": "#/components/schemas/DeletedAccount" } }
+                    } },
+                    "401": unauthorized,
+                    "403": scope_denied,
+                    "404": not_found
+                }
             }
         },
         "/accounts/{id}/state": {
@@ -611,6 +627,18 @@ fn account_schemas() -> serde_json::Value {
                 "unknown": { "type": "integer" },
                 "disabled": { "type": "integer" },
                 "total": { "type": "integer" }
+            }
+        },
+        "DeletedAccount": {
+            "type": "object",
+            "required": ["conversations", "messages", "grants", "sessions", "leases", "profiles"],
+            "properties": {
+                "conversations": { "type": "integer" },
+                "messages": { "type": "integer" },
+                "grants": { "type": "integer" },
+                "sessions": { "type": "integer" },
+                "leases": { "type": "integer" },
+                "profiles": { "type": "integer" }
             }
         }
     })

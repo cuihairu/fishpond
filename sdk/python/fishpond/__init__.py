@@ -157,6 +157,15 @@ class FishpondClient:
         )
 
 
+    def delete_account(self, id) -> DeletedAccount:
+        """Delete an account with its sessions, conversations, messages, grants, leases and profiles (observation history survives as audit trail)"""
+        return self._request(
+            "DELETE",
+            "/accounts/{id}",
+            path_args={"id": id},
+        )
+
+
     def get_account(self, id) -> Account:
         """One account"""
         return self._request(

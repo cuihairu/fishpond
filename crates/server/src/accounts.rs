@@ -105,6 +105,24 @@ impl Accounts {
             .await?;
         Ok(updated)
     }
+
+    /// Deletes one account and every row hanging off it in a single
+    /// transaction (F040): authorization sessions, conversations and
+    /// their messages, takeover grants, leases and profiles. Observation
+    /// history survives as the audit trail; an atomic `account.deleted`
+    /// event records the per-table counts. A foreign or unknown id is
+    /// [`ServiceError::NotFound`] — never a delete.
+    pub async fn delete(
+        &self,
+        tenant: &TenantId,
+        id: &AccountId,
+        at: UnixMillis,
+    ) -> ServiceResult<fishpond_storage::DeletedAccount> {
+        self.store
+            .delete_account(tenant, id, at)
+            .await
+            .map_err(Into::into)
+    }
 }
 
 /// Aggregate account counts by state (see [`Accounts::status`]).

@@ -406,3 +406,75 @@ async fn sessions_start_list_cursor_and_transitions() {
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
 }
+
+#[tokio::test]
+async fn delete_account_route_contract() {
+    if gated().await.is_none() {
+        eprintln!("skip: no database");
+        return;
+    }
+    let (router, _tenant, _store) = setup("f040-del").await;
+    let account_id = unique_entity("acc", "del");
+    let path = format!("/accounts/{account_id}");
+
+    let (status, created) = call(
+        &router,
+        "POST",
+        "/accounts",
+        Some("key-f040-del"),
+        Some(serde_json::json!({ "id": account_id, "platform": "mock" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+
+    // Deletion reports what the cascade removed and the account is gone.
+    let (status, removed) = call(&router, "DELETE", &path, Some("key-f040-del"), None).await;
+    assert_eq!(status, StatusCode::OK, "{removed}");
+    for field in [
+        "conversations",
+        "messages",
+        "grants",
+        "sessions",
+        "leases",
+        "profiles",
+    ] {
+        assert_eq!(removed[field], 0, "{field}: {removed}");
+    }
+    let (status, problem) = call(&router, "GET", &path, Some("key-f040-del"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{problem}");
+    assert_eq!(problem["type"], "https://fishpond.dev/problems/not-found");
+
+    // Deleting an absent (or already deleted) account is a 404 Problem.
+    let (status, problem) = call(&router, "DELETE", &path, Some("key-f040-del"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{problem}");
+    assert_eq!(problem["type"], "https://fishpond.dev/problems/not-found");
+
+    // Scope enforcement: the read-only key may not delete (403).
+    let other = unique_entity("acc", "del2");
+    let other_path = format!("/accounts/{other}");
+    let (status, created) = call(
+        &router,
+        "POST",
+        "/accounts",
+        Some("key-f040-del"),
+        Some(serde_json::json!({ "id": other, "platform": "mock" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let (status, problem) = call(
+        &router,
+        "DELETE",
+        &other_path,
+        Some("key-ro-f040-del"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+    assert_eq!(
+        problem["type"],
+        "https://fishpond.dev/problems/scope-denied"
+    );
+    // The refused delete leaves the account in place.
+    let (status, got) = call(&router, "GET", &other_path, Some("key-f040-del"), None).await;
+    assert_eq!(status, StatusCode::OK, "{got}");
+}

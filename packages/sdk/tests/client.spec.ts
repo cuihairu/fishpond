@@ -300,3 +300,48 @@ describe("typed payloads", () => {
     expect(summary.unknown).toBe(1);
   });
 });
+
+describe("account deletion (F040)", () => {
+  it("sends a DELETE with the bearer and no body, returns the counts", async () => {
+    responder = () =>
+      json({
+        conversations: 1,
+        messages: 2,
+        grants: 1,
+        sessions: 2,
+        leases: 1,
+        profiles: 1,
+      });
+    const removed = await client().deleteAccount("acc-1");
+    expect(last().method).toBe("DELETE");
+    expect(last().url).toBe("http://control.test/accounts/acc-1");
+    expect(last().headers.authorization).toBe("Bearer key-1");
+    expect(last().body).toBeUndefined();
+    expect(removed).toEqual({
+      conversations: 1,
+      messages: 2,
+      grants: 1,
+      sessions: 2,
+      leases: 1,
+      profiles: 1,
+    });
+  });
+
+  it("classifies a missing account as not-found", async () => {
+    responder = () => problem("not-found", 404, "account acc-gone not found");
+    const error = await client()
+      .deleteAccount("acc-gone")
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).kind).toBe("missing");
+    expect((error as ApiError).problem.status).toBe(404);
+  });
+
+  it("requires accounts:write (bearer present, server enforces scope)", async () => {
+    responder = () => problem("scope-denied", 403, "scope denied");
+    const error = await client()
+      .deleteAccount("acc-1")
+      .catch((caught: unknown) => caught);
+    expect((error as ApiError).kind).toBe("forbidden");
+  });
+});

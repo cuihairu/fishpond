@@ -90,7 +90,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/healthz", get(health))
         .route("/openapi.json", get(openapi::serve))
         .route("/accounts", get(accounts::list).post(accounts::register))
-        .route("/accounts/{id}", get(accounts::get))
+        .route(
+            "/accounts/{id}",
+            get(accounts::get).delete(accounts::delete),
+        )
         .route("/accounts/{id}/state", post(accounts::set_state))
         .route("/status", get(accounts::status))
         .route("/sessions", get(sessions::list).post(sessions::start))

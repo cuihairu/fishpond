@@ -131,6 +131,16 @@ type CreatedOperation struct {
 	Replayed  bool      `json:"replayed"`
 }
 
+// DeletedAccount mirrors the contract schema of the same name.
+type DeletedAccount struct {
+	Conversations int64 `json:"conversations"`
+	Grants        int64 `json:"grants"`
+	Leases        int64 `json:"leases"`
+	Messages      int64 `json:"messages"`
+	Profiles      int64 `json:"profiles"`
+	Sessions      int64 `json:"sessions"`
+}
+
 // Event mirrors the contract schema of the same name.
 type Event struct {
 	AccountId  *string `json:"account_id,omitempty"`
@@ -370,6 +380,19 @@ func (c *Client) CreateOperation(ctx context.Context, idempotencyKey string, bod
 	headers.Set("Idempotency-Key", idempotencyKey)
 	var out CreatedOperation
 	payload, err := c.do(ctx, "POST", "/operations", nil, headers, body, true)
+	if err != nil {
+		return out, err
+	}
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// Delete an account with its sessions, conversations, messages, grants, leases and profiles (observation history survives as audit trail)
+func (c *Client) DeleteAccount(ctx context.Context, id string) (DeletedAccount, error) {
+	var out DeletedAccount
+	payload, err := c.do(ctx, "DELETE", "/accounts/"+url.PathEscape(id)+"", nil, nil, nil, true)
 	if err != nil {
 		return out, err
 	}

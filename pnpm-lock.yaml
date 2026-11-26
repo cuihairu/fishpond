@@ -212,6 +212,9 @@ importers:
       vite:
         specifier: ^7.0.0
         version: 7.3.8(@types/node@24.19.4)
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@types/node@24.19.4)(vite@7.3.8(@types/node@24.19.4))
 
 packages:
 

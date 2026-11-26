@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 aes-gcm = "0.10"
 fishpond-domain = { path = "../domain" }
+rand_core = { version = "0.6", features = ["getrandom"] }
 sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = [
     "runtime-tokio",

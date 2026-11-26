@@ -24,6 +24,7 @@ pub mod operations;
 pub mod profiles;
 pub mod sessions;
 pub mod store;
+pub mod takeover;
 pub mod webhooks;
 pub mod workers;
 
@@ -47,6 +48,9 @@ pub use operations::{
 pub use profiles::{NewProfile, ProfileLock, ProfileRecord, ProfileState};
 pub use sessions::{AuthSessionRecord, AuthSessionUpdate, NewAuthSession};
 pub use store::{Store, TenantRecord};
+pub use takeover::{
+    NewTakeoverGrant, TakeoverGrantRecord, generate_takeover_token, hash_takeover_token,
+};
 pub use webhooks::{
     DeliveryRecord, DeliveryStatus, NewDelivery, NewWebhookSubscription, WebhookSubscriptionRecord,
 };

@@ -1,0 +1,154 @@
+name: Daily Build (nightly)
+
+on:
+  schedule:
+    # 离峰非整点：每天 03:43 UTC（北京时间 11:43），避开 GitHub Actions 高峰
+    - cron: '43 3 * * *'
+  workflow_dispatch: # 手动触发必建
+
+permissions:
+  contents: write # 创建/更新 nightly tag/Release 需要
+
+concurrency:
+  group: fishpond-nightly-release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Decide whether nightly is needed
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.stagnation.outputs.skip }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 需要完整历史做 48h 判断
+
+      # 48h 停滞门：仅对 schedule 生效；workflow_dispatch 跳过检查必建
+      - name: Stagnation gate (48h no new commits on main → skip)
+        if: github.event_name == 'schedule'
+        id: stagnation
+        run: |
+          LATEST=$(git log -1 --format=%ct origin/main)
+          NOW=$(date +%s)
+          DIFF_HOURS=$(( (NOW - LATEST) / 3600 ))
+          echo "diff_hours=$DIFF_HOURS" >> "$GITHUB_OUTPUT"
+          if [ "$DIFF_HOURS" -ge 48 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "no new commits in ${DIFF_HOURS}h — skip nightly"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Force build on manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "skip=false" >> "$GITHUB_OUTPUT"
+
+  nightly:
+    name: nightly (${{ matrix.os }})
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: "1.88.0"
+          target: ${{ matrix.target }}
+
+      - name: Test (workspace)
+        run: cargo test --workspace
+
+      - name: Build release
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # node 面（packages/sdk + 前端）只在 linux 跑与打包
+      - name: Node install/lint/test/build (linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run lint
+          pnpm run test
+          pnpm run build
+
+      # SDK 再生成守门（同 ci.yml sdk job：漂移即红）
+      - name: SDK regenerate gate (linux only)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: sdk/go/go.mod
+
+      - name: SDK regenerate + diff (linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python3 scripts/generate_sdk.py \
+            --doc crates/server/tests/fixtures/openapi.json \
+            --ts packages/sdk/src/client.ts \
+            --py sdk/python/fishpond/__init__.py \
+            --go sdk/go/fishpond
+          git diff --exit-code || (echo "SDK drift detected — regenerate and commit" && exit 1)
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          mkdir -p stage
+          find "target/${{ matrix.target }}/release" -maxdepth 1 -type f -executable \
+            | while read -r f; do cp "$f" stage/; done
+          tar -czf "fishpond-nightly-${{ matrix.target }}.tar.gz" -C stage .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fishpond-nightly-${{ matrix.target }}
+          path: fishpond-nightly-*.tar.gz
+          retention-days: 14
+
+  release:
+    name: attach nightly release
+    needs: [plan, nightly]
+    if: needs.plan.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute tag
+        id: tag
+        run: echo "tag=nightly-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Nightly tag
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          git config user.name "fishpond-nightly-bot"
+          git config user.email "nightly@users.noreply.github.com"
+          git tag -f "$TAG"
+          git push -f origin "$TAG"
+
+      - name: Nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: nightly ${{ steps.tag.outputs.tag }}
+          prerelease: true
+          files: dist/*
+          body: |
+            Automated nightly build (run ${{ github.run_id }}).
+            - Commit: ${{ github.sha }}
+            - Artifacts: linux x86_64 / macOS aarch64 / windows x86_64

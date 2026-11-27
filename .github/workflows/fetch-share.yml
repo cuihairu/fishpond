@@ -1,0 +1,65 @@
+name: Fetch Share Link
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL to fetch'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch page and extract text
+        shell: bash
+        env:
+          URL: ${{ inputs.url }}
+        run: |
+          set -euo pipefail
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+          for i in 1 2 3; do
+            code=$(curl -s -m 30 -A "$UA" "$URL" -o page.html -w '%{http_code}') || true
+            [ "$code" = "200" ] && [ -s page.html ] && break
+            sleep 3
+          done
+          echo "HTTP $code, bytes: $(wc -c < page.html)"
+          python3 - << 'PYEOF'
+          import re
+          raw = open('page.html', encoding='utf-8', errors='ignore').read()
+          D = '\\"'
+          parts = raw.split(D)
+          msgs = []
+          for seg in parts[1::2]:
+              cn = len(re.findall(r'[\u4e00-\u9fff]', seg))
+              if len(seg) > 300 and cn >= 10:
+                  t = seg
+                  prev = None
+                  while prev != t:
+                      prev = t
+                      t = t.replace('\\\\n', '\n').replace('\\\\t', '\t')
+                      t = re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), t)
+                      t = t.replace('\\\\', '\\')
+                  msgs.append(t)
+          # dedupe: keep longest copy of each unique message
+          seen = {}
+          for m in msgs:
+              key = m[:80]
+              if key not in seen or len(m) > len(seen[key]):
+                  seen[key] = m
+          out = '\n\n=====\n\n'.join(seen.values())
+          open('extracted.txt', 'w', encoding='utf-8').write(out)
+          print(f"messages: {len(seen)}, chars: {len(out)}")
+          PYEOF
+          cat extracted.txt
+
+      - name: Upload extracted text
+        uses: actions/upload-artifact@v4
+        with:
+          name: share-content
+          path: extracted.txt
+          retention-days: 1
